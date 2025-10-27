@@ -511,9 +511,14 @@ void DB::_networkChanged(nlohmann::json& old, nlohmann::json& networkConfig, boo
 				this->get(networkId, network, members);
 				for (auto i = members.begin(); i != members.end(); ++i) {
 					const std::string nodeID = (*i)["id"];
+					fprintf(
+						stderr, "Deauthorizing member %s on network %s due to network deletion\n", nodeID.c_str(),
+						ids.c_str());
 					const uint64_t memberId = Utils::hexStrToU64(nodeID.c_str());
 					std::unique_lock<std::shared_mutex> ll(_changeListeners_l);
 					for (auto j = _changeListeners.begin(); j != _changeListeners.end(); ++j) {
+						fprintf(
+							stderr, "Notifying listener of deauthorization of %s on %s\n", nodeID.c_str(), ids.c_str());
 						(*j)->onNetworkMemberDeauthorize(this, networkId, memberId);
 					}
 				}

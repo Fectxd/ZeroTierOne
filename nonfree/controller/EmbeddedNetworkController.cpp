@@ -1655,6 +1655,7 @@ void EmbeddedNetworkController::onNetworkMemberDeauthorize(const void* db, uint6
 	auto span = tracer->StartSpan("embedded_controller::onNetworkMemberDeauthorize");
 	auto scope = tracer->WithActiveSpan(span);
 
+	fprintf(stderr, "Member Deauthorized: nwid=%.16llx, nodeid=%.10llx\n", networkId, memberId);
 	const int64_t now = OSUtils::now();
 	Revocation rev(
 		(uint32_t)_node->prng(), networkId, 0, now, ZT_REVOCATION_FLAG_FAST_PROPAGATE, Address(memberId),
@@ -1663,8 +1664,13 @@ void EmbeddedNetworkController::onNetworkMemberDeauthorize(const void* db, uint6
 	{
 		std::lock_guard<std::mutex> l(_memberStatus_l);
 		for (auto i = _memberStatus.begin(); i != _memberStatus.end(); ++i) {
-			if ((i->first.networkId == networkId) && (i->second.online(now)))
+			if ((i->first.networkId == networkId) && (i->second.online(now))) {
 				_node->ncSendRevocation(Address(i->first.nodeId), rev);
+				fprintf(stderr, "  Sent revocation to %.10llx\n", i->first.nodeId);
+			}
+			else {
+				fprintf(stderr, "  Not sending revocation to %.10llx\n", i->first.nodeId);
+			}
 		}
 	}
 }
