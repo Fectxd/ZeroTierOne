@@ -139,6 +139,7 @@ void create_gcp_pubsub_subscription_if_needed(
 			request.set_name(subscriptionName);
 			request.set_topic(pubsub::Topic(project_id, topic_id).FullName());
 			request.set_filter("(attributes.controller_id=\"" + controller_id + "\")");
+			request.set_enable_message_ordering(true);
 			auto createResult = subscriptionAdminClient.CreateSubscription(request);
 			if (! createResult.ok()) {
 				fprintf(stderr, "Failed to create subscription: %s\n", createResult.status().message().c_str());

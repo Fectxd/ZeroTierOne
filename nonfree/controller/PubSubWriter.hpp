@@ -31,7 +31,7 @@ class PubSubWriter {
 		int64_t last_seen);
 
   protected:
-	bool publishMessage(const std::string& payload, const std::string& frontend);
+	bool publishMessage(const std::string& payload, const std::string& frontend, const std::string& orderingKey);
 
   private:
 	std::string _controller_id;
