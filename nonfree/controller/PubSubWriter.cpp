@@ -2,9 +2,11 @@
 
 #include "../../osdep/OSUtils.hpp"
 #include "CtlUtil.hpp"
+#include "OtelCarrier.hpp"
 #include "member.pb.h"
 #include "member_status.pb.h"
 #include "network.pb.h"
+#include "opentelemetry/context/propagation/global_propagator.h"
 
 #include <chrono>
 #include <google/cloud/options.h>
@@ -42,7 +44,8 @@ PubSubWriter::PubSubWriter(std::string project, std::string topic, std::string c
 		::google::cloud::Options {}
 			.set<pubsub::RetryPolicyOption>(pubsub::LimitedTimeRetryPolicy(std::chrono::seconds(5)).clone())
 			.set<pubsub::BackoffPolicyOption>(
-				pubsub::ExponentialBackoffPolicy(std::chrono::milliseconds(100), std::chrono::seconds(2), 1.3).clone());
+				pubsub::ExponentialBackoffPolicy(std::chrono::milliseconds(100), std::chrono::seconds(2), 1.3).clone())
+			.set<pubsub::MessageOrderingOption>(true);
 	auto publisher = pubsub::MakePublisherConnection(pubsub::Topic(project, topic), std::move(options));
 	_publisher = std::make_shared<pubsub::Publisher>(std::move(publisher));
 }
@@ -56,9 +59,25 @@ bool PubSubWriter::publishMessage(
 	const std::string& frontend,
 	const std::string& orderingKey)
 {
+	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
+	auto tracer = provider->GetTracer("PubSubWriter");
+	auto span = tracer->StartSpan("PubSubWriter::publishMessage");
+	auto scope = tracer->WithActiveSpan(span);
+
 	fprintf(stderr, "Publishing message to %s\n", _topic.c_str());
 	std::vector<std::pair<std::string, std::string> > attributes;
 	attributes.emplace_back("controller_id", _controller_id);
+
+	std::map<std::string, std::string> attrs_map;
+	OtelCarrier<std::map<std::string, std::string> > carrier(attrs_map);
+	auto propagator = opentelemetry::context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+	auto current_ctx = opentelemetry::context::RuntimeContext::GetCurrent();
+	propagator->Inject(carrier, current_ctx);
+
+	for (const auto& kv : attrs_map) {
+		fprintf(stderr, "Attributes injected: %s=%s\n", kv.first.c_str(), kv.second.c_str());
+		attributes.emplace_back(kv.first, kv.second);
+	}
 
 	if (! frontend.empty()) {
 		attributes.emplace_back("frontend", frontend);

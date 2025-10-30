@@ -112,7 +112,20 @@ class CentralDB : public DB {
 	std::string _myAddressStr;
 	std::string _connString;
 
-	BlockingQueue<std::pair<nlohmann::json, bool> > _commitQueue;
+	struct _queueItem {
+		_queueItem() : jsonData(), notifyListeners(false), traceContext()
+		{
+		}
+
+		~_queueItem()
+		{
+		}
+
+		nlohmann::json jsonData;
+		bool notifyListeners;
+		std::map<std::string, std::string> traceContext;
+	};
+	BlockingQueue<_queueItem> _commitQueue;
 
 	std::thread _heartbeatThread;
 	std::shared_ptr<NotificationListener> _membersDbWatcher;

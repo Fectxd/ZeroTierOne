@@ -4,11 +4,16 @@
 #include "ControllerConfig.hpp"
 #include "CtlUtil.hpp"
 #include "DB.hpp"
+#include "OtelCarrier.hpp"
 #include "member.pb.h"
 #include "network.pb.h"
+#include "opentelemetry/context/propagation/global_propagator.h"
+#include "opentelemetry/trace/propagation/http_trace_context.h"
 #include "opentelemetry/trace/provider.h"
+#include "opentelemetry/trace/tracer.h"
 #include "rustybits.h"
 
+#include <google/cloud/opentelemetry_options.h>
 #include <google/cloud/pubsub/admin/subscription_admin_client.h>
 #include <google/cloud/pubsub/admin/subscription_admin_connection.h>
 #include <google/cloud/pubsub/admin/topic_admin_client.h>
@@ -50,7 +55,9 @@ PubSubListener::PubSubListener(std::string controller_id, std::string project, s
 		create_gcp_pubsub_subscription_if_needed(_project, _subscription_id, _topic, _controller_id);
 	}
 
-	_subscriber = std::make_shared<pubsub::Subscriber>(pubsub::MakeSubscriberConnection(*_subscription));
+	_subscriber = std::make_shared<pubsub::Subscriber>(
+		pubsub::MakeSubscriberConnection(*_subscription),
+		google::cloud::Options {}.set<google::cloud::OpenTelemetryTracingOption>(true));
 
 	_run = true;
 	_subscriberThread = std::thread(&PubSubListener::subscribe, this);
@@ -77,20 +84,38 @@ void PubSubListener::subscribe()
 			auto session = _subscriber->Subscribe([this](pubsub::Message const& m, pubsub::AckHandler h) {
 				auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 				auto tracer = provider->GetTracer("PubSubListener");
-				auto span = tracer->StartSpan("PubSubListener::onMessage");
-				auto scope = tracer->WithActiveSpan(span);
-				span->SetAttribute("message_id", m.message_id());
-				span->SetAttribute("ordering_key", m.ordering_key());
 
-				fprintf(stderr, "Received message %s\n", m.message_id().c_str());
-				if (onNotification(m.data())) {
-					std::move(h).ack();
-					span->SetStatus(opentelemetry::trace::StatusCode::kOk);
-					return true;
+				auto propagator = opentelemetry::context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+				auto attrs = m.attributes();
+				std::map<std::string, std::string> attrs_map;
+				for (auto const& kv : m.attributes()) {
+					fprintf(stderr, "Message attribute: %s=%s\n", kv.first.c_str(), kv.second.c_str());
+					attrs_map.emplace(kv.first, kv.second);
 				}
-				else {
-					span->SetStatus(opentelemetry::trace::StatusCode::kError, "onNotification failed");
-					return false;
+
+				OtelCarrier<std::map<std::string, std::string> > carrier(attrs_map);
+
+				auto current_ctx = opentelemetry::context::RuntimeContext::GetCurrent();
+				auto new_context = propagator->Extract(carrier, current_ctx);
+				auto remote_span = opentelemetry::trace::GetSpan(new_context);
+				auto remote_scope = tracer->WithActiveSpan(remote_span);
+
+				{
+					auto span = tracer->StartSpan("PubSubListener::onMessage");
+					auto scope = tracer->WithActiveSpan(span);
+					span->SetAttribute("message_id", m.message_id());
+					span->SetAttribute("ordering_key", m.ordering_key());
+
+					fprintf(stderr, "Received message %s\n", m.message_id().c_str());
+					if (onNotification(m.data())) {
+						std::move(h).ack();
+						span->SetStatus(opentelemetry::trace::StatusCode::kOk);
+						return true;
+					}
+					else {
+						span->SetStatus(opentelemetry::trace::StatusCode::kError, "onNotification failed");
+						return false;
+					}
 				}
 			});
 

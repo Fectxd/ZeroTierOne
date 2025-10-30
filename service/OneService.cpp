@@ -49,6 +49,10 @@
 #endif
 
 #ifdef ZT_OPENTELEMETRY_ENABLED
+#include "opentelemetry/baggage/propagation/baggage_propagator.h"
+#include "opentelemetry/context/propagation/composite_propagator.h"
+#include "opentelemetry/context/propagation/global_propagator.h"
+#include "opentelemetry/context/propagation/text_map_propagator.h"
 #include "opentelemetry/exporters/memory/in_memory_data.h"
 #include "opentelemetry/exporters/otlp/otlp_grpc_exporter.h"
 #include "opentelemetry/exporters/otlp/otlp_grpc_log_record_exporter.h"
@@ -68,6 +72,7 @@
 #include "opentelemetry/sdk/trace/tracer.h"
 #include "opentelemetry/sdk/trace/tracer_context.h"
 #include "opentelemetry/sdk/trace/tracer_provider.h"
+#include "opentelemetry/trace/propagation/http_trace_context.h"
 #include "opentelemetry/trace/provider.h"
 
 namespace sdktrace = opentelemetry::v1::sdk::trace;
@@ -1169,6 +1174,19 @@ class OneServiceImpl : public OneService {
 			_traceProvider = opentelemetry::nostd::shared_ptr<sdktrace::TracerProvider>(
 				new sdktrace::TracerProvider(std::move(tracer_context)));
 			sdktrace::Provider::SetTracerProvider(_traceProvider);
+
+			std::vector<std::unique_ptr<opentelemetry::context::propagation::TextMapPropagator> > propagators;
+			propagators.push_back(
+				std::unique_ptr<opentelemetry::context::propagation::TextMapPropagator>(
+					new opentelemetry::trace::propagation::HttpTraceContext()));
+			propagators.push_back(
+				std::unique_ptr<opentelemetry::context::propagation::TextMapPropagator>(
+					new opentelemetry::baggage::propagation::BaggagePropagator()));
+
+			auto p = opentelemetry::nostd::shared_ptr<opentelemetry::context::propagation::TextMapPropagator>(
+				new opentelemetry::context::propagation::CompositePropagator(std::move(propagators)));
+
+			opentelemetry::context::propagation::GlobalTextMapPropagator::SetGlobalPropagator(p);
 		}
 	}
 
