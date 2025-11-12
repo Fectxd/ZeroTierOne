@@ -25,7 +25,7 @@ conda config --set channel_priority strict
 Install external dependencies:
 
 ```bash
-conda env create -f environment.yaml
+conda env create -f conda_env_build.yaml
 conda env activate central_controller
 ```
 
@@ -39,8 +39,7 @@ cmake --build build/ --target all -j8 --verbose
 
 ## Packaging via Docker
 
-TODO: write me
-
+Handled by GitHub Actions
 
 ## Configuration
 
