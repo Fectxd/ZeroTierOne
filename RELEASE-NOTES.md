@@ -1,6 +1,13 @@
 ZeroTier Release Notes
 ======
 
+## 2025-12-22 -- Version 1.16.1
+
+  * Metrics collection is now disabled by default. It can be enabled via the `enableMetrics` setting in `local.conf`.
+  * Fix for an issue where metrics were not being recorded while running in daemon mode.
+  * Fix debug dumpfile being written to the root directory.
+  * Minor bug fixes in Mac and BSD tun/tap code.
+
 ## 2025-08-21 -- Version 1.16.0
 
   * License Changes

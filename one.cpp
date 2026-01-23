@@ -1196,12 +1196,13 @@ static int cli(int argc, char** argv)
 			return 0;
 		}
 
-		snprintf((char*)path, sizeof(path), "%s%szerotier_dump.txt", (char*)path, ZT_PATH_SEPARATOR_S);
+		char dumpfile[PATH_MAX];
+		snprintf(dumpfile, sizeof(dumpfile), "%s%szerotier_dump.txt", (char*)path, ZT_PATH_SEPARATOR_S);
 
-		fprintf(stdout, "Writing dump to: %s\n", path);
-		int fd = open((char*)path, O_CREAT | O_RDWR, 0664);
+		fprintf(stdout, "Writing dump to: %s\n", dumpfile);
+		int fd = open(dumpfile, O_CREAT | O_WRONLY | O_TRUNC, 0664);
 		if (fd == -1) {
-			fprintf(stderr, "Error creating file.\n");
+			perror("Error creating file");
 			return 1;
 		}
 		write(fd, dump.str().c_str(), dump.str().size());
@@ -1278,9 +1279,9 @@ static int cli(int argc, char** argv)
 				return 0;
 			}
 
-			BOOL err = WriteFile(file, dump.str().c_str(), dump.str().size(), NULL, NULL);
-			if (err = FALSE) {
-				fprintf(stderr, "Error writing file");
+			BOOL ok = WriteFile(file, dump.str().c_str(), dump.str().size(), NULL, NULL);
+			if (ok == FALSE) {
+				fprintf(stderr, "Error writing file\n");
 				return 1;
 			}
 			CloseHandle(file);
@@ -1346,12 +1347,15 @@ static int cli(int argc, char** argv)
 		}
 		close(sock);
 		char cwd[16384];
-		getcwd(cwd, sizeof(cwd));
-		snprintf(cwd, sizeof(cwd), "%s%szerotier_dump.txt", cwd, ZT_PATH_SEPARATOR_S);
-		fprintf(stdout, "Writing dump to: %s\n", cwd);
-		int fd = open(cwd, O_CREAT | O_RDWR, 0664);
+		if (getcwd(cwd, sizeof(cwd)) == nullptr) {
+			strcpy(cwd, ".");
+		}
+		char dumpfile[sizeof(cwd) + 32];
+		snprintf(dumpfile, sizeof(dumpfile), "%s%szerotier_dump.txt", cwd, ZT_PATH_SEPARATOR_S);
+		fprintf(stdout, "Writing dump to: %s\n", dumpfile);
+		int fd = open(dumpfile, O_CREAT | O_WRONLY | O_TRUNC, 0664);
 		if (fd == -1) {
-			fprintf(stderr, "Error creating file.\n");
+			perror("Error creating file");
 			return 1;
 		}
 		write(fd, dump.str().c_str(), dump.str().size());
@@ -2330,14 +2334,18 @@ int main(int argc, char** argv)
 	}
 #endif	 // !ZT_ONE_NO_ROOT_CHECK
 	if (runAsDaemon) {
+		prometheus::simpleapi::saver.stop();
+
 		long p = (long)fork();
 		if (p < 0) {
 			fprintf(stderr, "%s: could not fork" ZT_EOL_S, argv[0]);
 			return 1;
 		}
 		else if (p > 0)
-			return 0;	// forked
+			_Exit(0);	// forked
 						// else p == 0, so we are daemonized
+
+		prometheus::simpleapi::saver.restart();
 	}
 #endif	 // __UNIX_LIKE__
 
