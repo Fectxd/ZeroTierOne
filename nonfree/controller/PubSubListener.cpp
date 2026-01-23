@@ -80,7 +80,6 @@ void PubSubListener::subscribe()
 {
 	while (_run) {
 		try {
-			fprintf(stderr, "Starting new subscription session\n");
 			auto session = _subscriber->Subscribe([this](pubsub::Message const& m, pubsub::AckHandler h) {
 				auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 				auto tracer = provider->GetTracer("PubSubListener");
@@ -89,7 +88,6 @@ void PubSubListener::subscribe()
 				auto attrs = m.attributes();
 				std::map<std::string, std::string> attrs_map;
 				for (auto const& kv : m.attributes()) {
-					fprintf(stderr, "Message attribute: %s=%s\n", kv.first.c_str(), kv.second.c_str());
 					attrs_map.emplace(kv.first, kv.second);
 				}
 
@@ -106,7 +104,6 @@ void PubSubListener::subscribe()
 					span->SetAttribute("message_id", m.message_id());
 					span->SetAttribute("ordering_key", m.ordering_key());
 
-					fprintf(stderr, "Received message %s\n", m.message_id().c_str());
 					if (onNotification(m.data())) {
 						std::move(h).ack();
 						span->SetStatus(opentelemetry::trace::StatusCode::kOk);
@@ -160,8 +157,6 @@ bool PubSubNetworkListener::onNotification(const std::string& payload)
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Failed to parse protobuf");
 		return false;
 	}
-	fprintf(stderr, "PubSubNetworkListener: parsed protobuf message. %s\n", nc.DebugString().c_str());
-	fprintf(stderr, "Network notification received\n");
 
 	try {
 		nlohmann::json oldConfig, newConfig;
@@ -228,7 +223,6 @@ bool PubSubNetworkListener::onNotification(const std::string& payload)
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Unknown exception");
 		return false;
 	}
-	fprintf(stderr, "PubSubNetworkListener onNotification complete\n");
 	return true;
 }
 
@@ -256,8 +250,6 @@ bool PubSubMemberListener::onNotification(const std::string& payload)
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Failed to parse protobuf");
 		return false;
 	}
-	fprintf(stderr, "PubSubMemberListener: parsed protobuf message. %s\n", mc.DebugString().c_str());
-	fprintf(stderr, "Member notification received");
 
 	try {
 		nlohmann::json tmp;

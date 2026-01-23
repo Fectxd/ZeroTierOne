@@ -1655,7 +1655,6 @@ void EmbeddedNetworkController::onNetworkMemberDeauthorize(const void* db, uint6
 	auto span = tracer->StartSpan("embedded_controller::onNetworkMemberDeauthorize");
 	auto scope = tracer->WithActiveSpan(span);
 
-	fprintf(stderr, "Member Deauthorized: nwid=%.16llx, nodeid=%.10llx\n", networkId, memberId);
 	const int64_t now = OSUtils::now();
 	Revocation rev(
 		(uint32_t)_node->prng(), networkId, 0, now, ZT_REVOCATION_FLAG_FAST_PROPAGATE, Address(memberId),
@@ -1666,10 +1665,7 @@ void EmbeddedNetworkController::onNetworkMemberDeauthorize(const void* db, uint6
 		for (auto i = _memberStatus.begin(); i != _memberStatus.end(); ++i) {
 			if ((i->first.networkId == networkId) && (i->second.online(now))) {
 				_node->ncSendRevocation(Address(i->first.nodeId), rev);
-				fprintf(stderr, "  Sent revocation to %.10llx\n", i->first.nodeId);
-			}
-			else {
-				fprintf(stderr, "  Not sending revocation to %.10llx\n", i->first.nodeId);
+				// fprintf(stderr, "  Sent revocation to %.10llx\n", i->first.nodeId);
 			}
 		}
 	}
@@ -2307,20 +2303,10 @@ void EmbeddedNetworkController::_request(
 		}
 	}
 
-	fprintf(stderr, "haveManagedIpv4AutoAssignment=%s\n", haveManagedIpv4AutoAssignment ? "true" : "false");
-	fprintf(stderr, "ipAssignmentPools.is_array()=%s\n", ipAssignmentPools.is_array() ? "true" : "false");
-	fprintf(stderr, "v4AssignMode.is_object()=%s\n", v4AssignMode.is_object() ? "true" : "false");
-	fprintf(
-		stderr, "v4AssignMode[\"zt\"]=%s\n",
-		(v4AssignMode.is_object() && OSUtils::jsonBool(v4AssignMode["zt"], false)) ? "true" : "false");
-	fprintf(stderr, "noAutoAssignIps=%s\n", noAutoAssignIps ? "true" : "false");
-
 	if ((ipAssignmentPools.is_array()) && ((v4AssignMode.is_object()) && (OSUtils::jsonBool(v4AssignMode["zt"], false)))
 		&& (! haveManagedIpv4AutoAssignment) && (! noAutoAssignIps)) {
-		fprintf(stderr, "Trying to do managed IPv4 auto-assignment\n");
 		for (unsigned long p = 0; ((p < ipAssignmentPools.size()) && (! haveManagedIpv4AutoAssignment)); ++p) {
 			json& pool = ipAssignmentPools[p];
-			fprintf(stderr, "  considering pool %lu: %s\n", p, OSUtils::jsonDump(pool, 2).c_str());
 			if (pool.is_object()) {
 				InetAddress ipRangeStartIA(OSUtils::jsonString(pool["ipRangeStart"], "").c_str());
 				InetAddress ipRangeEndIA(OSUtils::jsonString(pool["ipRangeEnd"], "").c_str());
@@ -2371,7 +2357,6 @@ void EmbeddedNetworkController::_request(
 							char tmpip[64];
 							const std::string ipStr(ip4.toIpString(tmpip));
 							if (std::find(ipAssignments.begin(), ipAssignments.end(), ipStr) == ipAssignments.end()) {
-								fprintf(stderr, "  assigning %s\n", ipStr.c_str());
 								ipAssignments.push_back(ipStr);
 								member["ipAssignments"] = ipAssignments;
 								if (nc->staticIpCount < ZT_MAX_ZT_ASSIGNED_ADDRESSES) {

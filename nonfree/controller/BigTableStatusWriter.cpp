@@ -87,7 +87,6 @@ void BigTableStatusWriter::writePending()
 	if (toWrite.empty()) {
 		return;
 	}
-	fprintf(stderr, "Writing %zu pending status entries to BigTable\n", toWrite.size());
 
 	cbt::BulkMutation bulk;
 	for (const auto& entry : toWrite) {

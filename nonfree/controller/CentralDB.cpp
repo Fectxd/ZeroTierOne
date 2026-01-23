@@ -319,13 +319,11 @@ bool CentralDB::save(nlohmann::json& record, bool notifyListeners)
 			auto span = tracer->StartSpan("CentralDB::save::network");
 			auto scope = tracer->WithActiveSpan(span);
 
-			fprintf(stderr, "CentralDB network save %s\n", record["id"].get<std::string>().c_str());
 			const uint64_t nwid = OSUtils::jsonIntHex(record["id"], 0ULL);
 			if (nwid) {
 				nlohmann::json old;
 				get(nwid, old);
 				if ((! old.is_object()) || (! _compareRecords(old, record))) {
-					fprintf(stderr, "posting network change to commit queue\n");
 					record["revision"] = OSUtils::jsonInt(record["revision"], 0ULL) + 1ULL;
 					_queueItem qi;
 					qi.jsonData = record;
@@ -348,12 +346,10 @@ bool CentralDB::save(nlohmann::json& record, bool notifyListeners)
 			std::string memberId = record["id"];
 			const uint64_t nwid = OSUtils::jsonIntHex(record["nwid"], 0ULL);
 			const uint64_t id = OSUtils::jsonIntHex(record["id"], 0ULL);
-			fprintf(stderr, "member save %s-%s\n", networkId.c_str(), memberId.c_str());
 			if ((id) && (nwid)) {
 				nlohmann::json network, old;
 				get(nwid, network, id, old);
 				if ((! old.is_object()) || (! _compareRecords(old, record))) {
-					fprintf(stderr, "posting member change to commit queue\n");
 					record["revision"] = OSUtils::jsonInt(record["revision"], 0ULL) + 1ULL;
 
 					_queueItem qi;
@@ -395,7 +391,6 @@ void CentralDB::eraseNetwork(const uint64_t networkId)
 	char networkIdStr[17];
 	span->SetAttribute("network_id", Utils::hex(networkId, networkIdStr));
 
-	fprintf(stderr, "CentralDB::eraseNetwork\n");
 	char tmp2[24];
 	waitForReady();
 	Utils::hex(networkId, tmp2);
@@ -425,7 +420,6 @@ void CentralDB::eraseMember(const uint64_t networkId, const uint64_t memberId)
 	span->SetAttribute("network_id", Utils::hex(networkId, networkIdStr));
 	span->SetAttribute("member_id", Utils::hex10(memberId, memberIdStr));
 
-	fprintf(stderr, "CentralDB::eraseMember\n");
 	char tmp2[24];
 	waitForReady();
 
@@ -1149,11 +1143,6 @@ void CentralDB::commitThread()
 		auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 		auto tracer = provider->GetTracer("CentralDB");
 
-		fprintf(stderr, "checking qitem trace context\n");
-		for (auto const& kv : qitem.traceContext) {
-			fprintf(stderr, "traceContext: %s: %s\n", kv.first.c_str(), kv.second.c_str());
-		}
-
 		auto propagator = opentelemetry::context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
 		OtelCarrier<std::map<std::string, std::string> > carrier(qitem.traceContext);
 		auto current_ctx = opentelemetry::context::RuntimeContext::GetCurrent();
@@ -1202,7 +1191,6 @@ void CentralDB::commitThread()
 
 						memberId = config["id"];
 						networkId = config["nwid"];
-						fprintf(stderr, "commit member %s-%s\n", networkId.c_str(), memberId.c_str());
 
 						std::string target = "NULL";
 						if (! config["remoteTraceTarget"].is_null()) {
@@ -1243,18 +1231,12 @@ void CentralDB::commitThread()
 							change_source = "controller";
 						}
 						if (! isNewMember && change_source != "controller" && frontend != change_source) {
-							fprintf(
-								stderr, "skipping member %s-%s update.  change source: %s, frontend: %s\n",
-								networkId.c_str(), memberId.c_str(), change_source.c_str(), frontend.c_str());
 							// if it is not a new member and the change source is not the controller and doesn't match
 							// the frontend, don't apply the change.
 							continue;
 						}
 
 						std::vector<std::string> ipAssignments;
-						fprintf(
-							stderr, "Saving IP Assignments: \n\tipAssignments: %s\n",
-							OSUtils::jsonDump(config["ipAssignments"], -1).c_str());
 						if (config["ipAssignments"].is_array()) {
 							for (auto& ip : config["ipAssignments"]) {
 								if (ip.is_string()) {
@@ -1262,8 +1244,6 @@ void CentralDB::commitThread()
 								}
 							}
 						}
-
-						fprintf(stderr, "member json: %s\n", config.dump().c_str());
 
 						int64_t vMajor = OSUtils::jsonUInt(config["vMajor"], 0);
 						int64_t vMinor = OSUtils::jsonUInt(config["vMinor"], 0);
@@ -1399,7 +1379,6 @@ void CentralDB::commitThread()
 						pqxx::work w(*c->c);
 
 						std::string id = config["id"];
-						fprintf(stderr, "commit network %s\n", id.c_str());
 
 						pqxx::row nwrow =
 							w.exec("SELECT COUNT(id) frontend FROM networks_ctl WHERE id = $1", pqxx::params { id })
@@ -1423,10 +1402,6 @@ void CentralDB::commitThread()
 						if (! isNewNetwork && change_source != "controller" && frontend != change_source) {
 							// if it is not a new network and the change source is not the controller and doesn't match
 							// the frontend, don't apply the change.
-							fprintf(
-								stderr,
-								"Skipping network update %s. isNewNetwork: %s, change_source: %s, frontend: %s\n",
-								id.c_str(), isNewNetwork ? "true" : "false", change_source.c_str(), frontend.c_str());
 							continue;
 						}
 
@@ -1499,7 +1474,6 @@ void CentralDB::commitThread()
 					try {
 						pqxx::work w(*c->c);
 						std::string networkId = config["id"];
-						fprintf(stderr, "Deleting network %s\n", networkId.c_str());
 						w.exec("DELETE FROM network_memberships_ctl WHERE network_id = $1", pqxx::params { networkId });
 						w.exec("DELETE FROM networks_ctl WHERE id = $1", pqxx::params { networkId });
 
@@ -1545,8 +1519,6 @@ void CentralDB::commitThread()
 
 						std::string memberId = config["id"];
 						std::string networkId = config["nwid"];
-
-						fprintf(stderr, "Deleting member %s-%s\n", networkId.c_str(), memberId.c_str());
 
 						pqxx::result res =
 							w.exec(

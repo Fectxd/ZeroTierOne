@@ -57,7 +57,6 @@ bool PostgresMemberListener::onNotification(const std::string& payload)
 	auto scope = tracer->WithActiveSpan(span);
 	span->SetAttribute("payload", payload);
 
-	fprintf(stderr, "Member Notification received: %s\n", payload.c_str());
 	Metrics::pgsql_mem_notification++;
 	nlohmann::json tmp(nlohmann::json::parse(payload));
 	nlohmann::json& ov = tmp["old_val"];
@@ -70,13 +69,11 @@ bool PostgresMemberListener::onNotification(const std::string& payload)
 
 	if (oldConfig.is_object() && newConfig.is_object()) {
 		_db->save(newConfig, true);
-		fprintf(stderr, "payload sent\n");
 	}
 	else if (newConfig.is_object() && ! oldConfig.is_object()) {
 		// new member
 		Metrics::member_count++;
 		_db->save(newConfig, true);
-		fprintf(stderr, "new member payload sent\n");
 	}
 	else if (! newConfig.is_object() && oldConfig.is_object()) {
 		// member delete
@@ -84,7 +81,6 @@ bool PostgresMemberListener::onNotification(const std::string& payload)
 		uint64_t memberId = OSUtils::jsonIntHex(oldConfig["id"], 0ULL);
 		if (memberId && networkId) {
 			_db->eraseMember(networkId, memberId);
-			fprintf(stderr, "member delete payload sent\n");
 		}
 	}
 	return true;
@@ -135,7 +131,6 @@ bool PostgresNetworkListener::onNotification(const std::string& payload)
 	auto scope = tracer->WithActiveSpan(span);
 	span->SetAttribute("payload", payload);
 
-	fprintf(stderr, "Network Notification received: %s\n", payload.c_str());
 	Metrics::pgsql_net_notification++;
 	nlohmann::json tmp(nlohmann::json::parse(payload));
 
@@ -153,7 +148,6 @@ bool PostgresNetworkListener::onNotification(const std::string& payload)
 		span->SetAttribute("action", "network_change");
 		span->SetAttribute("network_id", nwid);
 		_db->save(newConfig, true);
-		fprintf(stderr, "payload sent\n");
 	}
 	else if (newConfig.is_object() && ! oldConfig.is_object()) {
 		std::string nwid = newConfig["id"];
@@ -161,7 +155,6 @@ bool PostgresNetworkListener::onNotification(const std::string& payload)
 		span->SetAttribute("action", "new_network");
 		// new network
 		_db->save(newConfig, true);
-		fprintf(stderr, "new network payload sent\n");
 	}
 	else if (! newConfig.is_object() && oldConfig.is_object()) {
 		// network delete
@@ -172,7 +165,6 @@ bool PostgresNetworkListener::onNotification(const std::string& payload)
 		span->SetAttribute("network_id_int", networkId);
 		if (networkId) {
 			_db->eraseNetwork(networkId);
-			fprintf(stderr, "network delete payload sent\n");
 		}
 	}
 	return true;

@@ -64,7 +64,6 @@ bool PubSubWriter::publishMessage(
 	auto span = tracer->StartSpan("PubSubWriter::publishMessage");
 	auto scope = tracer->WithActiveSpan(span);
 
-	fprintf(stderr, "Publishing message to %s\n", _topic.c_str());
 	std::vector<std::pair<std::string, std::string> > attributes;
 	attributes.emplace_back("controller_id", _controller_id);
 
@@ -75,7 +74,6 @@ bool PubSubWriter::publishMessage(
 	propagator->Inject(carrier, current_ctx);
 
 	for (const auto& kv : attrs_map) {
-		fprintf(stderr, "Attributes injected: %s=%s\n", kv.first.c_str(), kv.second.c_str());
 		attributes.emplace_back(kv.first, kv.second);
 	}
 
@@ -94,7 +92,6 @@ bool PubSubWriter::publishMessage(
 		return false;
 	}
 
-	fprintf(stderr, "Published message to %s\n", _topic.c_str());
 	return true;
 }
 
@@ -103,7 +100,6 @@ bool PubSubWriter::publishNetworkChange(
 	const nlohmann::json& newNetwork,
 	const std::string& frontend)
 {
-	fprintf(stderr, "Publishing network change\n");
 	pbmessages::NetworkChange* nc = networkChangeFromJson(_controller_id, oldNetwork, newNetwork);
 
 	std::string networkID;
@@ -129,7 +125,6 @@ bool PubSubWriter::publishMemberChange(
 	const nlohmann::json& newMember,
 	const std::string& frontend)
 {
-	fprintf(stderr, "Publishing member change\n");
 	pbmessages::MemberChange* mc = memberChangeFromJson(_controller_id, oldMember, newMember);
 	std::string memberID;
 	if (mc->has_new_()) {
@@ -314,8 +309,6 @@ pbmessages::MemberChange_Member* memberFromJson(const nlohmann::json& j)
 		return nullptr;
 	}
 
-	fprintf(stderr, "memberFromJSON: %s\n", j.dump().c_str());
-
 	pbmessages::MemberChange_Member* m = new pbmessages::MemberChange_Member();
 	try {
 		m->set_network_id(OSUtils::jsonString(j["nwid"], ""));
@@ -373,15 +366,12 @@ pbmessages::MemberChange_Member* memberFromJson(const nlohmann::json& j)
 		delete m;
 		return nullptr;
 	}
-	fprintf(stderr, "memberFromJSON complete\n");
 	return m;
 }
 
 pbmessages::MemberChange*
 memberChangeFromJson(std::string controllerID, const nlohmann::json& oldMember, const nlohmann::json& newMember)
 {
-	fprintf(stderr, "memberrChangeFromJson: old: %s\n", oldMember.dump().c_str());
-	fprintf(stderr, "memberrChangeFromJson: new: %s\n", newMember.dump().c_str());
 	pbmessages::MemberChange* mc = new pbmessages::MemberChange();
 	pbmessages::MemberChange_Member* om = memberFromJson(oldMember);
 	if (om != nullptr) {
