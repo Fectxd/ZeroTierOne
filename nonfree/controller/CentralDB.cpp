@@ -510,14 +510,14 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 			// check if the member exists first.
 			pqxx::row count =
 				w.exec(
-					 "SELECT count(id) FROM ztc_member WHERE id = $1 AND network_id = $2 AND deleted = false",
+					 "SELECT count(id) FROM network_memberships_ctl WHERE device_id = $1 AND network_id = $2",
 					 pqxx::params { memberId, networkId })
 					.one_row();
 			if (count[0].as<int>() == 1) {
 				// get active nonce, if exists.
 				pqxx::result r = w.exec(
-					"SELECT nonce FROM ztc_sso_expiry "
-					"WHERE network_id = $1 AND member_id = $2 "
+					"SELECT nonce FROM sso_expiry "
+					"WHERE network_id = $1 AND device_id = $2 "
 					"AND ((NOW() AT TIME ZONE 'UTC') <= authentication_expiry_time) AND ((NOW() AT TIME ZONE 'UTC') <= "
 					"nonce_expiration)",
 					pqxx::params { networkId, memberId });
@@ -526,8 +526,8 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 					// no active nonce.
 					// find an unused nonce, if one exists.
 					pqxx::result r = w.exec(
-						"SELECT nonce FROM ztc_sso_expiry "
-						"WHERE network_id = $1 AND member_id = $2 "
+						"SELECT nonce FROM sso_expiry "
+						"WHERE network_id = $1 AND device_id = $2 "
 						"AND authentication_expiry_time IS NULL AND ((NOW() AT TIME ZONE 'UTC') <= nonce_expiration)",
 						pqxx::params { networkId, memberId });
 
@@ -544,8 +544,8 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 						nonce = std::string(nonceBuf);
 
 						pqxx::result ir = w.exec(
-							"INSERT INTO ztc_sso_expiry "
-							"(nonce, nonce_expiration, network_id, member_id) VALUES "
+							"INSERT INTO sso_expiry "
+							"(nonce, nonce_expiration, network_id, device_id) VALUES "
 							"($1, TO_TIMESTAMP($2::double precision/1000), $3, $4)",
 							pqxx::params { nonce, OSUtils::now() + 300000, networkId, memberId });
 
@@ -568,15 +568,11 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 				}
 
 				r = w.exec(
-					"SELECT oc.client_id, oc.authorization_endpoint, oc.issuer, oc.provider, oc.sso_impl_version "
-					"FROM ztc_network AS n "
-					"INNER JOIN ztc_org o "
-					"  ON o.owner_id = n.owner_id "
-					"LEFT OUTER JOIN ztc_network_oidc_config noc "
-					"  ON noc.network_id = n.id "
-					"LEFT OUTER JOIN ztc_oidc_config oc "
-					"  ON noc.client_id = oc.client_id AND oc.org_id = o.org_id "
-					"WHERE n.id = $1 AND n.sso_enabled = true",
+					"SELECT oc.client_id, oc.authorization_endpoint, oc.issuer, oc.provider, 1 AS sso_impl_version "
+					"FROM oidc_config oc "
+					"INNER JOIN networks_ctl n "
+					" ON oc.client_id = n.configuration->'ssoConfig'->>'ssoClientId' "
+					"WHERE n.id = $1 AND n.configuration->>'ssoEnabled' = 'true' ",
 					pqxx::params { networkId });
 
 				std::string client_id = "";
