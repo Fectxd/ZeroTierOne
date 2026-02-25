@@ -1,6 +1,5 @@
-CREATE INDEX IF NOT EXISTS sso_expiry_network_member_ix ON public.sso_expiry (network_id, device_id);
-
 ALTER TABLE sso_expiry RENAME COLUMN member_id TO device_id;
+CREATE INDEX IF NOT EXISTS sso_expiry_network_member_ix ON public.sso_expiry (network_id, device_id);
 
 CREATE TABLE IF NOT EXISTS oidc_config (
 	client_id TEXT NOT NULL,
