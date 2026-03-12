@@ -1264,11 +1264,12 @@ void CentralDB::commitThread()
 								 "identity, last_authorized_time, last_deauthorized_time, "
 								 "remote_trace_level, remote_trace_target, revision, tags, version_major, "
 								 "version_minor, "
-								 "version_revision, version_protocol) "
+								 "version_revision, version_protocol, frontend) "
 								 "VALUES ($1, $2, $3, $4, $5, $6, $7, TO_TIMESTAMP($8::double precision/1000), $9, "
 								 "TO_TIMESTAMP($10::double precision/1000), $11, TO_TIMESTAMP($12::double "
 								 "precision/1000), "
-								 "TO_TIMESTAMP($13::double precision/1000), $14, $15, $16, $17, $18, $19, $20, $21) "
+								 "TO_TIMESTAMP($13::double precision/1000), $14, $15, $16, $17, $18, $19, $20, $21, "
+								 "$22) "
 								 "ON CONFLICT (device_id, network_id) DO UPDATE SET "
 								 "authorized = EXCLUDED.authorized, active_bridge = EXCLUDED.active_bridge, "
 								 "ip_assignments = EXCLUDED.ip_assignments, no_auto_assign_ips = "
@@ -1284,7 +1285,8 @@ void CentralDB::commitThread()
 								 "EXCLUDED.version_major, "
 								 "version_minor = EXCLUDED.version_minor, version_revision = "
 								 "EXCLUDED.version_revision, "
-								 "version_protocol = EXCLUDED.version_protocol",
+								 "version_protocol = EXCLUDED.version_protocol, "
+								 "frontend = EXCLUDED.frontend",
 								 pqxx::params { memberId,
 												networkId,
 												OSUtils::jsonBool(config["authorized"], false),
@@ -1305,7 +1307,8 @@ void CentralDB::commitThread()
 												vMajor,
 												vMinor,
 												vRev,
-												vProto })
+												vProto,
+												frontend })
 								.no_rows();
 
 						w.commit();
