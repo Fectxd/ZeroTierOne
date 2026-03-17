@@ -26,7 +26,7 @@ Install external dependencies:
 
 ```bash
 conda env create -f conda_env_build.yaml
-conda env activate central_controller
+conda activate central_controller
 ```
 
 ## Build the Central Controller Binary

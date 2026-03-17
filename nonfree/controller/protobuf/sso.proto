@@ -12,7 +12,7 @@ message SSOUpdate
 		CTL_NONCE_UPDATE = 1;
 
 		// From CV1/CV2 to Controller to update authentication status
-		CV1_AUTH_UPDATE = 2;
+		ZT1_AUTH_UPDATE = 2;
 	}
 
 	message NonceUpdate

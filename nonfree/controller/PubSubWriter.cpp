@@ -6,6 +6,7 @@
 #include "member.pb.h"
 #include "member_status.pb.h"
 #include "network.pb.h"
+#include "sso.pb.h"
 #include "opentelemetry/context/propagation/global_propagator.h"
 
 #include <chrono>
@@ -179,6 +180,37 @@ bool PubSubWriter::publishStatusChange(
 	}
 
 	return publishMessage(payload, "", "");
+}
+
+bool PubSubWriter::publishSSONonceUpdate(
+	const std::string& nonce,
+	uint64_t nonceExpiration,
+	const std::string& networkId,
+	const std::string& deviceId,
+	const std::string& frontend)
+{
+	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
+	auto tracer = provider->GetTracer("PubSubWriter");
+	auto span = tracer->StartSpan("PubSubWriter::publishSSONonceUpdate");
+	auto scope = tracer->WithActiveSpan(span);
+
+	pbmessages::SSOUpdate msg;
+	msg.set_message_type(pbmessages::SSOUpdate::CTL_NONCE_UPDATE);
+
+	pbmessages::SSOUpdate_NonceUpdate* nu = new pbmessages::SSOUpdate_NonceUpdate();
+	nu->set_nonce(nonce);
+	nu->set_nonce_expiration(nonceExpiration);
+	nu->set_network_id(networkId);
+	nu->set_device_id(deviceId);
+	msg.set_allocated_nonce_update(nu);
+
+	std::string payload;
+	if (! msg.SerializeToString(&payload)) {
+		fprintf(stderr, "Failed to serialize SSOUpdate protobuf message\n");
+		return false;
+	}
+
+	return publishMessage(payload, frontend, networkId + "-" + deviceId);
 }
 
 pbmessages::NetworkChange_Network* networkFromJson(const nlohmann::json& j)

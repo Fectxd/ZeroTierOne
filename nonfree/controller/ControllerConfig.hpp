@@ -13,6 +13,8 @@ struct PubSubConfig {
 	std::string member_change_send_topic;
 	std::string network_change_recv_topic;
 	std::string network_change_send_topic;
+	std::string sso_send_topic;
+	std::string sso_recv_topic;
 };
 
 struct BigTableConfig {

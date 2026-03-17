@@ -3,7 +3,9 @@
 #ifndef ZT_CONTROLLER_PUBSUBLISTENER_HPP
 #define ZT_CONTROLLER_PUBSUBLISTENER_HPP
 
+#include "ConnectionPool.hpp"
 #include "NotificationListener.hpp"
+#include "PostgreSQL.hpp"
 #include "rustybits.h"
 
 #include <google/cloud/pubsub/admin/subscription_admin_client.h>
@@ -66,6 +68,24 @@ class PubSubMemberListener : public PubSubListener {
 
   private:
 	DB* _db;
+};
+
+/**
+ * Listener for SSO auth update notifications via GCP PubSub
+ */
+class PubSubSSOListener : public PubSubListener {
+  public:
+	PubSubSSOListener(
+		std::string controller_id,
+		std::string project,
+		std::string topic,
+		std::shared_ptr<ConnectionPool<PostgresConnection> > pool);
+	virtual ~PubSubSSOListener();
+
+	virtual bool onNotification(const std::string& payload) override;
+
+  private:
+	std::shared_ptr<ConnectionPool<PostgresConnection> > _pool;
 };
 
 }	// namespace ZeroTier

@@ -24,6 +24,7 @@ namespace ZeroTier {
 struct RedisConfig;
 struct ControllerConfig;
 struct ControllerChangeNotifier;
+class PubSubWriter;
 
 class CentralDB : public DB {
   public:
@@ -132,6 +133,8 @@ class CentralDB : public DB {
 	std::shared_ptr<NotificationListener> _networksDbWatcher;
 	std::shared_ptr<StatusWriter> _statusWriter;
 	std::shared_ptr<ControllerChangeNotifier> _changeNotifier;
+	std::shared_ptr<NotificationListener> _ssoAuthListener;
+	std::shared_ptr<PubSubWriter> _ssoNonceWriter;
 	std::thread _commitThread[ZT_CENTRAL_CONTROLLER_COMMIT_THREADS];
 	std::thread _onlineNotificationThread;
 

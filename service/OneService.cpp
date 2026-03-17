@@ -1848,6 +1848,10 @@ class OneServiceImpl : public OneService {
 					OSUtils::jsonString(ps["network_change_recv_topic"], "");
 				_controllerConfig.pubSubConfig->network_change_send_topic =
 					OSUtils::jsonString(ps["network_change_send_topic"], "");
+				_controllerConfig.pubSubConfig->sso_send_topic =
+					OSUtils::jsonString(ps["sso_send_topic"], "");
+				_controllerConfig.pubSubConfig->sso_recv_topic =
+					OSUtils::jsonString(ps["sso_recv_topic"], "");
 			}
 			if (_controllerConfig.listenMode == "pubsub" && ! _controllerConfig.pubSubConfig) {
 				fprintf(stderr, "ERROR: pubsub listenMode requires pubsub configuration in local.conf" ZT_EOL_S);

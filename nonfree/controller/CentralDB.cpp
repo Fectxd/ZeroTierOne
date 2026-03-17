@@ -174,6 +174,14 @@ CentralDB::CentralDB(
 				_changeNotifier = std::make_shared<PubSubChangeNotifier>(
 					_myAddressStr, cc->pubSubConfig->project_id, cc->pubSubConfig->member_change_send_topic,
 					cc->pubSubConfig->network_change_send_topic);
+				if (! cc->pubSubConfig->sso_send_topic.empty()) {
+					_ssoNonceWriter = std::make_shared<PubSubWriter>(
+						cc->pubSubConfig->project_id, cc->pubSubConfig->sso_send_topic, _myAddressStr);
+				}
+				if (! cc->pubSubConfig->sso_recv_topic.empty()) {
+					_ssoAuthListener = std::make_shared<PubSubSSOListener>(
+						_myAddressStr, cc->pubSubConfig->project_id, cc->pubSubConfig->sso_recv_topic, _pool);
+				}
 			}
 			else {
 				throw std::runtime_error(
@@ -514,6 +522,17 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 					 pqxx::params { memberId, networkId })
 					.one_row();
 			if (count[0].as<int>() == 1) {
+				// Query the network's frontend while the transaction is guaranteed open
+				std::string frontend;
+				if (_ssoNonceWriter) {
+					pqxx::result fr = w.exec(
+						"SELECT frontend FROM networks_ctl WHERE id = $1",
+						pqxx::params { networkId });
+					if (fr.size() == 1) {
+						frontend = fr.at(0)[0].as<std::optional<std::string> >().value_or("");
+					}
+				}
+
 				// get active nonce, if exists.
 				pqxx::result r = w.exec(
 					"SELECT nonce FROM sso_expiry "
@@ -543,11 +562,17 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 						Utils::hex(nonceBytes, sizeof(nonceBytes), nonceBuf);
 						nonce = std::string(nonceBuf);
 
+						uint64_t nonceExpiration = OSUtils::now() + 300000ULL;
 						pqxx::result ir = w.exec(
 							"INSERT INTO sso_expiry "
 							"(nonce, nonce_expiration, network_id, device_id) VALUES "
 							"($1, TO_TIMESTAMP($2::double precision/1000), $3, $4)",
-							pqxx::params { nonce, OSUtils::now() + 300000, networkId, memberId });
+							pqxx::params { nonce, nonceExpiration, networkId, memberId });
+
+						if (_ssoNonceWriter) {
+							_ssoNonceWriter->publishSSONonceUpdate(
+								nonce, nonceExpiration, networkId, memberId, frontend);
+						}
 
 						w.commit();
 					}
@@ -565,6 +590,15 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 					// more than 1 nonce in use?  Uhhh...
 					fprintf(stderr, "> 1 nonce in use for network member?!?\n");
 					exit(7);
+				}
+
+				// For reused nonces (non-INSERT paths), publish the nonce update here.
+				// New nonces are published inside the INSERT branch above (before w.commit()).
+				// We use 0 for nonceExpiration on reused nonces since the actual
+				// expiration is already stored in the database.
+				if (_ssoNonceWriter && ! nonce.empty()) {
+					_ssoNonceWriter->publishSSONonceUpdate(
+						nonce, 0, networkId, memberId, frontend);
 				}
 
 				r = w.exec(
@@ -645,6 +679,9 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 		catch (std::exception& e) {
 			span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 			fprintf(stderr, "ERROR: Error updating member on load for network %s: %s\n", networkId.c_str(), e.what());
+			if (c) {
+				_pool->unborrow(c);
+			}
 		}
 
 		return info;   // std::string(authenticationURL);

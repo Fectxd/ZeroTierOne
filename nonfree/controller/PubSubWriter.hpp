@@ -30,6 +30,13 @@ class PubSubWriter {
 		std::string version,
 		int64_t last_seen);
 
+	bool publishSSONonceUpdate(
+		const std::string& nonce,
+		uint64_t nonceExpiration,
+		const std::string& networkId,
+		const std::string& deviceId,
+		const std::string& frontend);
+
   protected:
 	bool publishMessage(const std::string& payload, const std::string& frontend, const std::string& orderingKey);
 

@@ -7,6 +7,7 @@
 #include "OtelCarrier.hpp"
 #include "member.pb.h"
 #include "network.pb.h"
+#include "sso.pb.h"
 #include "opentelemetry/context/propagation/global_propagator.h"
 #include "opentelemetry/trace/propagation/http_trace_context.h"
 #include "opentelemetry/trace/provider.h"
@@ -599,6 +600,102 @@ nlohmann::json toJson(const pbmessages::MemberChange_Member& mc, pbmessages::Mem
 	}
 
 	return out;
+}
+
+PubSubSSOListener::PubSubSSOListener(
+	std::string controller_id,
+	std::string project,
+	std::string topic,
+	std::shared_ptr<ConnectionPool<PostgresConnection> > pool)
+	: PubSubListener(controller_id, project, topic)
+	, _pool(pool)
+{
+}
+
+PubSubSSOListener::~PubSubSSOListener()
+{
+}
+
+bool PubSubSSOListener::onNotification(const std::string& payload)
+{
+	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
+	auto tracer = provider->GetTracer("PubSubSSOListener");
+	auto span = tracer->StartSpan("PubSubSSOListener::onNotification");
+	auto scope = tracer->WithActiveSpan(span);
+
+	pbmessages::SSOUpdate msg;
+	if (! msg.ParseFromString(payload)) {
+		fprintf(stderr, "Failed to parse SSOUpdate protobuf message\n");
+		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Failed to parse protobuf");
+		return false;
+	}
+
+	if (msg.message_type() != pbmessages::SSOUpdate::ZT1_AUTH_UPDATE) {
+		fprintf(stderr, "PubSubSSOListener: ignoring non-ZT1_AUTH_UPDATE message type %d\n", msg.message_type());
+		return true;
+	}
+
+	if (! msg.has_auth_update()) {
+		fprintf(stderr, "PubSubSSOListener: ZT1_AUTH_UPDATE message missing auth_update\n");
+		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Missing auth_update");
+		return false;
+	}
+
+	const auto& au = msg.auth_update();
+	std::string nonce = au.nonce();
+	uint64_t authExpiry = au.authentication_expiry();
+	std::string networkId = au.network_id();
+	std::string deviceId = au.device_id();
+
+	span->SetAttribute("network_id", networkId);
+	span->SetAttribute("device_id", deviceId);
+	span->SetAttribute("nonce", nonce);
+
+	std::shared_ptr<PostgresConnection> c;
+	try {
+		c = _pool->borrow();
+		pqxx::work w(*c->c);
+
+		// Verify network exists and log its frontend for traceability
+		pqxx::result fr = w.exec(
+			"SELECT frontend FROM networks_ctl WHERE id = $1",
+			pqxx::params { networkId });
+		if (fr.empty()) {
+			fprintf(stderr, "PubSubSSOListener: ignoring auth update for unknown network=%s\n",
+				networkId.c_str());
+			w.abort();
+			_pool->unborrow(c);
+			return true;	// ack — no point redelivering for a nonexistent network
+		}
+		std::string frontend = fr.at(0)[0].as<std::optional<std::string> >().value_or("");
+		span->SetAttribute("frontend", frontend);
+
+		pqxx::result res = w.exec(
+			"UPDATE sso_expiry "
+			"SET authentication_expiry_time = TO_TIMESTAMP($1::double precision / 1000) "
+			"WHERE nonce = $2 AND network_id = $3 AND device_id = $4",
+			pqxx::params { authExpiry, nonce, networkId, deviceId });
+
+		w.commit();
+
+		if (res.affected_rows() == 0) {
+			fprintf(
+				stderr, "PubSubSSOListener: no sso_expiry row matched for nonce=%s network=%s device=%s\n",
+				nonce.c_str(), networkId.c_str(), deviceId.c_str());
+		}
+
+		_pool->unborrow(c);
+	}
+	catch (std::exception& e) {
+		fprintf(stderr, "PubSubSSOListener: error updating sso_expiry: %s\n", e.what());
+		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
+		if (c) {
+			_pool->unborrow(c);
+		}
+		return false;
+	}
+
+	return true;
 }
 
 }	// namespace ZeroTier
