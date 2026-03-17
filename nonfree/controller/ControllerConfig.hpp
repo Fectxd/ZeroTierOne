@@ -27,6 +27,7 @@ struct ControllerConfig {
 	bool ssoEnabled;
 	std::string listenMode;
 	std::string statusMode;
+	std::string assignedCentralVersion;
 	RedisConfig* redisConfig;
 	PubSubConfig* pubSubConfig;
 	BigTableConfig* bigTableConfig;
@@ -35,6 +36,7 @@ struct ControllerConfig {
 		: ssoEnabled(false)
 		, listenMode("")
 		, statusMode("")
+		, assignedCentralVersion("all")
 		, redisConfig(nullptr)
 		, pubSubConfig(nullptr)
 		, bigTableConfig(nullptr)

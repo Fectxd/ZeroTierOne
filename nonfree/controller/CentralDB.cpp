@@ -63,6 +63,7 @@ CentralDB::CentralDB(
 	, _listenerMode(listenMode)
 	, _statusWriterMode(statusMode)
 	, _cc(cc)
+	, _assignedCentralVersion(cc->assignedCentralVersion)
 	, _pool()
 	, _myId(myId)
 	, _myAddress(myId.address())
@@ -1130,12 +1131,13 @@ void CentralDB::heartbeat()
 			try {
 				pqxx::work w { *c->c };
 				w.exec(
-					 "INSERT INTO controllers_ctl (id, hostname, last_heartbeat, public_identity, version) VALUES "
-					 "($1, $2, TO_TIMESTAMP($3::double precision/1000), $4, $5) "
+					 "INSERT INTO controllers_ctl (id, hostname, last_heartbeat, public_identity, version, assigned_central_version) VALUES "
+					 "($1, $2, TO_TIMESTAMP($3::double precision/1000), $4, $5, $6) "
 					 "ON CONFLICT (id) DO UPDATE SET hostname = EXCLUDED.hostname, last_heartbeat = "
 					 "EXCLUDED.last_heartbeat, "
-					 "public_identity = EXCLUDED.public_identity, version = EXCLUDED.version",
-					 pqxx::params { controllerId, hostname, ts, publicIdentity, versionStr })
+					 "public_identity = EXCLUDED.public_identity, version = EXCLUDED.version, "
+					 "assigned_central_version = EXCLUDED.assigned_central_version",
+					 pqxx::params { controllerId, hostname, ts, publicIdentity, versionStr, _assignedCentralVersion })
 					.no_rows();
 				w.commit();
 			}

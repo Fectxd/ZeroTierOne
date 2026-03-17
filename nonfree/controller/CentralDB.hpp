@@ -106,6 +106,7 @@ class CentralDB : public DB {
 	ListenerMode _listenerMode;
 	StatusWriterMode _statusWriterMode;
 	const ControllerConfig* _cc;
+	std::string _assignedCentralVersion;
 	std::shared_ptr<ConnectionPool<PostgresConnection> > _pool;
 
 	const Identity _myId;

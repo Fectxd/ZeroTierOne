@@ -1813,6 +1813,17 @@ class OneServiceImpl : public OneService {
 		if (cc.is_object()) {
 			_controllerConfig.listenMode = OSUtils::jsonString(cc["listenMode"], "pgsql");
 			_controllerConfig.statusMode = OSUtils::jsonString(cc["statusMode"], "pgsql");
+			// Valid values must match CHECK constraint in migration 0007_assigned_version
+			{
+				const std::string av = OSUtils::jsonString(cc["assignedCentralVersion"], "all");
+				if (av != "cv1" && av != "cv2" && av != "all") {
+					fprintf(
+						stderr,
+						"ERROR: assignedCentralVersion must be one of 'cv1', 'cv2', or 'all'" ZT_EOL_S);
+					exit(1);
+				}
+				_controllerConfig.assignedCentralVersion = av;
+			}
 
 			// redis settings
 			if (cc["redis"].is_object() && _rc == NULL) {
