@@ -15,5 +15,5 @@ CREATE TABLE IF NOT EXISTS sso_expiry (
 	creation_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT (current_timestamp AT TIME ZONE 'UTC'),
 	email TEXT,
 	authentication_expiry_time TIMESTAMP WITH TIME ZONE,
-	FOREIGN KEY (network_id, member_id) REFERENCES network_memberships_ctl(network_id, member_id) ON DELETE CASCADE
+	FOREIGN KEY (network_id, member_id) REFERENCES network_memberships_ctl(network_id, device_id) ON DELETE CASCADE
 );
