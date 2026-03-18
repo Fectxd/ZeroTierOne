@@ -11,9 +11,9 @@ CREATE TABLE IF NOT EXISTS sso_expiry (
 	nonce TEXT PRIMARY KEY,
 	nonce_expiration TIMESTAMP WITH TIME ZONE NOT NULL,
 	network_id CHARACTER(16) NOT NULL,
-	device_id CHARACTER(10) NOT NULL,
+	member_id CHARACTER(10) NOT NULL,
 	creation_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT (current_timestamp AT TIME ZONE 'UTC'),
 	email TEXT,
 	authentication_expiry_time TIMESTAMP WITH TIME ZONE,
-	FOREIGN KEY (network_id, device_id) REFERENCES network_memberships_ctl(network_id, device_id) ON DELETE CASCADE
+	FOREIGN KEY (network_id, member_id) REFERENCES network_memberships_ctl(network_id, member_id) ON DELETE CASCADE
 );
