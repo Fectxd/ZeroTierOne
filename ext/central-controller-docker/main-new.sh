@@ -132,7 +132,8 @@ echo "{
     },
     \"controller\": {
         \"listenMode\": \"${ZT_LISTEN_MODE:-pgsql}\",
-        \"statusMode\": \"${ZT_STATUS_MODE:-pgsql}\"
+        \"statusMode\": \"${ZT_STATUS_MODE:-pgsql}\",
+        \"assignedCentralVersion\": \"${ZT_ASSIGNED_CENTRAL_VERSION:-all}\"
         ${REDIS}
         ${BIGTABLE_CONF}
         ${PUBSUB_CONF}
