@@ -133,7 +133,8 @@ echo "{
     \"controller\": {
         \"listenMode\": \"${ZT_LISTEN_MODE:-pgsql}\",
         \"statusMode\": \"${ZT_STATUS_MODE:-pgsql}\",
-        \"assignedCentralVersion\": \"${ZT_ASSIGNED_CENTRAL_VERSION:-all}\"
+        \"assignedCentralVersion\": \"${ZT_ASSIGNED_CENTRAL_VERSION:-all}\",
+        \"ssoEnabled\": ${ZT_SSO_ENABLED:-false}
         ${REDIS}
         ${BIGTABLE_CONF}
         ${PUBSUB_CONF}

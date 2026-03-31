@@ -1825,6 +1825,8 @@ class OneServiceImpl : public OneService {
 				_controllerConfig.assignedCentralVersion = av;
 			}
 
+			_controllerConfig.ssoEnabled = OSUtils::jsonBool(cc["ssoEnabled"], false);
+
 			// redis settings
 			if (cc["redis"].is_object() && _rc == NULL) {
 				json& redis = cc["redis"];
