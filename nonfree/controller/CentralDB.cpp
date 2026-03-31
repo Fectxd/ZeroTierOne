@@ -512,7 +512,7 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 
 			// check if the member exists first.
 			pqxx::row count =
-				w.exec("SELECT count(id) FROM network_memberships_ctl WHERE device_id = $1 AND network_id = $2",
+				w.exec("SELECT count(*) FROM network_memberships_ctl WHERE device_id = $1 AND network_id = $2",
 					   pqxx::params { memberId, networkId })
 					.one_row();
 			if (count[0].as<int>() == 1) {
