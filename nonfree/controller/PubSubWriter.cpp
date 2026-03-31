@@ -6,8 +6,8 @@
 #include "member.pb.h"
 #include "member_status.pb.h"
 #include "network.pb.h"
-#include "sso.pb.h"
 #include "opentelemetry/context/propagation/global_propagator.h"
+#include "sso.pb.h"
 
 #include <chrono>
 #include <google/cloud/options.h>
@@ -30,9 +30,8 @@ PubSubWriter::PubSubWriter(std::string project, std::string topic, std::string c
 	, _project(project)
 	, _topic(topic)
 {
-	fprintf(
-		stderr, "PubSubWriter for controller %s project %s topic %s\n", controller_id.c_str(), project.c_str(),
-		topic.c_str());
+	fprintf(stderr, "PubSubWriter for controller %s project %s topic %s\n", controller_id.c_str(), project.c_str(),
+			topic.c_str());
 	GOOGLE_PROTOBUF_VERIFY_VERSION;
 
 	// If PUBSUB_EMULATOR_HOST is set, create the topic if it doesn't exist
@@ -55,10 +54,9 @@ PubSubWriter::~PubSubWriter()
 {
 }
 
-bool PubSubWriter::publishMessage(
-	const std::string& payload,
-	const std::string& frontend,
-	const std::string& orderingKey)
+bool PubSubWriter::publishMessage(const std::string& payload,
+								  const std::string& frontend,
+								  const std::string& orderingKey)
 {
 	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 	auto tracer = provider->GetTracer("PubSubWriter");
@@ -96,10 +94,9 @@ bool PubSubWriter::publishMessage(
 	return true;
 }
 
-bool PubSubWriter::publishNetworkChange(
-	const nlohmann::json& oldNetwork,
-	const nlohmann::json& newNetwork,
-	const std::string& frontend)
+bool PubSubWriter::publishNetworkChange(const nlohmann::json& oldNetwork,
+										const nlohmann::json& newNetwork,
+										const std::string& frontend)
 {
 	pbmessages::NetworkChange* nc = networkChangeFromJson(_controller_id, oldNetwork, newNetwork);
 
@@ -121,10 +118,9 @@ bool PubSubWriter::publishNetworkChange(
 	return publishMessage(payload, frontend, networkID);
 }
 
-bool PubSubWriter::publishMemberChange(
-	const nlohmann::json& oldMember,
-	const nlohmann::json& newMember,
-	const std::string& frontend)
+bool PubSubWriter::publishMemberChange(const nlohmann::json& oldMember,
+									   const nlohmann::json& newMember,
+									   const std::string& frontend)
 {
 	pbmessages::MemberChange* mc = memberChangeFromJson(_controller_id, oldMember, newMember);
 	std::string memberID;
@@ -146,14 +142,13 @@ bool PubSubWriter::publishMemberChange(
 	return publishMessage(payload, frontend, memberID);
 }
 
-bool PubSubWriter::publishStatusChange(
-	std::string frontend,
-	std::string network_id,
-	std::string node_id,
-	std::string os,
-	std::string arch,
-	std::string version,
-	int64_t last_seen)
+bool PubSubWriter::publishStatusChange(std::string frontend,
+									   std::string network_id,
+									   std::string node_id,
+									   std::string os,
+									   std::string arch,
+									   std::string version,
+									   int64_t last_seen)
 {
 	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 	auto tracer = provider->GetTracer("PubSubWriter");
@@ -182,12 +177,11 @@ bool PubSubWriter::publishStatusChange(
 	return publishMessage(payload, "", "");
 }
 
-bool PubSubWriter::publishSSONonceUpdate(
-	const std::string& nonce,
-	uint64_t nonceExpiration,
-	const std::string& networkId,
-	const std::string& deviceId,
-	const std::string& frontend)
+bool PubSubWriter::publishSSONonceUpdate(const std::string& nonce,
+										 uint64_t nonceExpiration,
+										 const std::string& networkId,
+										 const std::string& deviceId,
+										 const std::string& frontend)
 {
 	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 	auto tracer = provider->GetTracer("PubSubWriter");
@@ -338,6 +332,7 @@ pbmessages::MemberChange_Member* memberFromJson(const nlohmann::json& j)
 {
 	if (! j.is_object()) {
 		fprintf(stderr, "memberFromJson: JSON is not an object\n");
+		fprintf(stderr, "JSON: %s\n", j.dump().c_str());
 		return nullptr;
 	}
 
