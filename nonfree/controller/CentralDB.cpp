@@ -584,14 +584,6 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 					exit(7);
 				}
 
-				// For reused nonces (non-INSERT paths), publish the nonce update here.
-				// New nonces are published inside the INSERT branch above (before w.commit()).
-				// We use 0 for nonceExpiration on reused nonces since the actual
-				// expiration is already stored in the database.
-				if (_ssoNonceWriter && ! nonce.empty()) {
-					_ssoNonceWriter->publishSSONonceUpdate(nonce, 0, networkId, memberId, frontend);
-				}
-
 				r = w.exec(
 					"SELECT oc.client_id, oc.authorization_endpoint, oc.issuer, oc.provider, 1 AS sso_impl_version "
 					"FROM oidc_config oc "
