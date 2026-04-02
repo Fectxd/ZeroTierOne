@@ -39,7 +39,6 @@
 #include <libpq-fe.h>
 #include <optional>
 #include <pqxx/pqxx>
-#include <rustybits.h>
 #include <sstream>
 
 // #define REDIS_TRACE 1
@@ -74,14 +73,11 @@ CentralDB::CentralDB(const Identity& myId,
 	, _redis(NULL)
 	, _cluster(NULL)
 	, _redisMemberStatus(false)
-	, _smee(NULL)
 {
 	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 	auto tracer = provider->GetTracer("CentralDB");
 	auto span = tracer->StartSpan("CentralDB::CentralDB");
 	auto scope = tracer->WithActiveSpan(span);
-
-	rustybits::init_async_runtime();
 
 	char myAddress[64];
 	_myAddressStr = myId.address().toString(myAddress);
@@ -238,19 +234,10 @@ CentralDB::CentralDB(const Identity& myId,
 		_commitThread[i] = std::thread(&CentralDB::commitThread, this);
 	}
 	_onlineNotificationThread = std::thread(&CentralDB::onlineNotificationThread, this);
-
-	configureSmee();
 }
 
 CentralDB::~CentralDB()
 {
-	if (_smee != NULL) {
-		rustybits::smee_client_delete(_smee);
-		_smee = NULL;
-	}
-
-	rustybits::shutdown_async_runtime();
-
 	_run = 0;
 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
@@ -260,39 +247,6 @@ CentralDB::~CentralDB()
 		_commitThread[i].join();
 	}
 	_onlineNotificationThread.join();
-}
-
-void CentralDB::configureSmee()
-{
-	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
-	auto tracer = provider->GetTracer("CentralDB");
-	auto span = tracer->StartSpan("CentralDB::configureSmee");
-	auto scope = tracer->WithActiveSpan(span);
-
-	const char* TEMPORAL_SCHEME = "ZT_TEMPORAL_SCHEME";
-	const char* TEMPORAL_HOST = "ZT_TEMPORAL_HOST";
-	const char* TEMPORAL_PORT = "ZT_TEMPORAL_PORT";
-	const char* TEMPORAL_NAMESPACE = "ZT_TEMPORAL_NAMESPACE";
-	const char* SMEE_TASK_QUEUE = "ZT_SMEE_TASK_QUEUE";
-
-	const char* scheme = getenv(TEMPORAL_SCHEME);
-	if (scheme == NULL) {
-		scheme = "http";
-	}
-	const char* host = getenv(TEMPORAL_HOST);
-	const char* port = getenv(TEMPORAL_PORT);
-	const char* ns = getenv(TEMPORAL_NAMESPACE);
-	const char* task_queue = getenv(SMEE_TASK_QUEUE);
-
-	if (scheme != NULL && host != NULL && port != NULL && ns != NULL && task_queue != NULL) {
-		fprintf(stderr, "creating smee client\n");
-		std::string hostPort =
-			std::string(scheme) + std::string("://") + std::string(host) + std::string(":") + std::string(port);
-		this->_smee = rustybits::smee_client_new(hostPort.c_str(), ns, task_queue);
-	}
-	else {
-		fprintf(stderr, "Smee client not configured\n");
-	}
 }
 
 bool CentralDB::waitForReady()
@@ -1337,24 +1291,6 @@ void CentralDB::commitThread()
 							}
 						}
 
-						if (_smee != NULL && isNewMember) {
-							// TODO: Smee Notifications for New Members
-							// pqxx::row row = w.exec_params1(
-							// 	"SELECT "
-							// 	"	count(h.hook_id) "
-							// 	"FROM "
-							// 	"	ztc_hook h "
-							// 	"	INNER JOIN ztc_org o ON o.org_id = h.org_id "
-							// 	"   INNER JOIN ztc_network n ON n.owner_id = o.owner_id "
-							// 	" WHERE "
-							// 	"n.id = $1 ",
-							// 	networkId);
-							// int64_t hookCount = row[0].as<int64_t>();
-							// if (hookCount > 0) {
-							// 	notifyNewMember(networkId, memberId);
-							// }
-						}
-
 						const uint64_t nwidInt = OSUtils::jsonIntHex(config["nwid"], 0ULL);
 						const uint64_t memberidInt = OSUtils::jsonIntHex(config["id"], 0ULL);
 						if (nwidInt && memberidInt) {
@@ -1584,16 +1520,6 @@ void CentralDB::commitThread()
 	}
 
 	fprintf(stderr, "%s commitThread finished\n", _myAddressStr.c_str());
-}
-
-void CentralDB::notifyNewMember(const std::string& networkID, const std::string& memberID)
-{
-	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
-	auto tracer = provider->GetTracer("CentralDB");
-	auto span = tracer->StartSpan("CentralDB::notifyNewMember");
-	auto scope = tracer->WithActiveSpan(span);
-
-	rustybits::smee_client_notify_network_joined(_smee, networkID.c_str(), memberID.c_str());
 }
 
 void CentralDB::onlineNotificationThread()

@@ -16,10 +16,6 @@
 #include <pqxx/pqxx>
 #include <sw/redis++/redis++.h>
 
-namespace rustybits {
-struct SmeeClient;
-}
-
 namespace ZeroTier {
 struct RedisConfig;
 struct ControllerConfig;
@@ -40,13 +36,12 @@ class CentralDB : public DB {
 		STATUS_WRITER_MODE_BIGTABLE = 2,
 	};
 
-	CentralDB(
-		const Identity& myId,
-		const char* connString,
-		int listenPort,
-		CentralDB::ListenerMode mode,
-		CentralDB::StatusWriterMode statusMode,
-		const ControllerConfig* cc);
+	CentralDB(const Identity& myId,
+			  const char* connString,
+			  int listenPort,
+			  CentralDB::ListenerMode mode,
+			  CentralDB::StatusWriterMode statusMode,
+			  const ControllerConfig* cc);
 	virtual ~CentralDB();
 
 	virtual bool waitForReady();
@@ -55,34 +50,25 @@ class CentralDB : public DB {
 	virtual void eraseNetwork(const uint64_t networkId);
 	virtual void eraseMember(const uint64_t networkId, const uint64_t memberId);
 	virtual void nodeIsOnline(const uint64_t networkId, const uint64_t memberId, const InetAddress& physicalAddress);
-	virtual void nodeIsOnline(
-		const uint64_t networkId,
-		const uint64_t memberId,
-		const InetAddress& physicalAddress,
-		const char* osArch);
+	virtual void nodeIsOnline(const uint64_t networkId,
+							  const uint64_t memberId,
+							  const InetAddress& physicalAddress,
+							  const char* osArch);
 	virtual AuthInfo getSSOAuthInfo(const nlohmann::json& member, const std::string& redirectURL);
 
 	virtual bool ready()
-	{
-		return _ready == 2;
-	}
+	{ return _ready == 2; }
 
 	virtual void _memberChanged(nlohmann::json& old, nlohmann::json& memberConfig, bool notifyListeners)
-	{
-		DB::_memberChanged(old, memberConfig, notifyListeners);
-	}
+	{ DB::_memberChanged(old, memberConfig, notifyListeners); }
 
 	virtual void _networkChanged(nlohmann::json& old, nlohmann::json& networkConfig, bool notifyListeners)
-	{
-		DB::_networkChanged(old, networkConfig, notifyListeners);
-	}
+	{ DB::_networkChanged(old, networkConfig, notifyListeners); }
 
   protected:
 	struct _PairHasher {
 		inline std::size_t operator()(const std::pair<uint64_t, uint64_t>& p) const
-		{
-			return (std::size_t)(p.first ^ p.second);
-		}
+		{ return (std::size_t)(p.first ^ p.second); }
 	};
 
   private:
@@ -92,9 +78,6 @@ class CentralDB : public DB {
 
 	void commitThread();
 	void onlineNotificationThread();
-
-	void configureSmee();
-	void notifyNewMember(const std::string& networkID, const std::string& memberID);
 
 	nlohmann::json _getNetworkMember(pqxx::work& tx, const std::string networkID, const std::string memberID);
 
@@ -152,8 +135,6 @@ class CentralDB : public DB {
 	std::shared_ptr<sw::redis::Redis> _redis;
 	std::shared_ptr<sw::redis::RedisCluster> _cluster;
 	bool _redisMemberStatus;
-
-	rustybits::SmeeClient* _smee;
 };
 
 }	// namespace ZeroTier
