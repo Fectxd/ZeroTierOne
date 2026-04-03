@@ -2462,19 +2462,24 @@ void EmbeddedNetworkController::_startThreads()
 	}
 	const long hwc = std::max((long)std::thread::hardware_concurrency(), (long)1);
 	for (long t = 0; t < hwc; ++t) {
-		_threads.emplace_back([this]() {
+		_threads.emplace_back([this, t]() {
 			Metrics::network_config_request_threads++;
+			uint64_t processedCount = 0;
+			uint64_t idleIterations = 0;
 			for (;;) {
 				_RQEntry* qe = (_RQEntry*)0;
-				Metrics::network_config_request_queue_size = _queue.size();
+				auto queueSize = _queue.size();
+				Metrics::network_config_request_queue_size = queueSize;
 				auto timedWaitResult = _queue.get(qe, 1000);
 				if (timedWaitResult == BlockingQueue<_RQEntry*>::STOP) {
 					break;
 				}
 				else if (timedWaitResult == BlockingQueue<_RQEntry*>::OK) {
+					idleIterations = 0;
 					if (qe) {
 						try {
 							_request(qe->nwid, qe->fromAddr, qe->requestPacketId, qe->identity, qe->metaData);
+							processedCount++;
 						}
 						catch (std::exception& e) {
 							fprintf(
@@ -2488,6 +2493,13 @@ void EmbeddedNetworkController::_startThreads()
 						}
 						delete qe;
 						qe = nullptr;
+					}
+				}
+				else {
+					// Periodic liveness log every ~30s (30 timeout iterations of 1000ms)
+					if (++idleIterations % 30 == 0) {
+						fprintf(stderr, "request worker %ld: alive, queue_size=%lu, total_processed=%llu\n",
+								t, (unsigned long)queueSize, (unsigned long long)processedCount);
 					}
 				}
 			}

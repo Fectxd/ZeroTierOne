@@ -1071,6 +1071,7 @@ void CentralDB::heartbeat()
 			}
 			catch (std::exception& e) {
 				fprintf(stderr, "%s: Heartbeat update failed: %s\n", controllerId, e.what());
+				_pool->unborrow(c);
 				span->End();
 				std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 				continue;
@@ -1532,6 +1533,7 @@ void CentralDB::onlineNotificationThread()
 			auto span = tracer->StartSpan("CentralDB::onlineNotificationThread");
 			auto scope = tracer->WithActiveSpan(span);
 
+			std::shared_ptr<PostgresConnection> c;
 			try {
 				std::unordered_map<std::pair<uint64_t, uint64_t>, NodeOnlineRecord, _PairHasher> lastOnline;
 				{
@@ -1540,7 +1542,7 @@ void CentralDB::onlineNotificationThread()
 				}
 
 				uint64_t writtenCount = 0;
-				auto c = _pool->borrow();
+				c = _pool->borrow();
 				pqxx::work w(*c->c);
 				for (auto i = lastOnline.begin(); i != lastOnline.end(); ++i) {
 					uint64_t nwid_i = i->first.first;
@@ -1610,10 +1612,12 @@ void CentralDB::onlineNotificationThread()
 						(unsigned long long)lastOnline.size(), (unsigned long long)writtenCount);
 				_statusWriter->writePending();
 				w.commit();
-				_pool->unborrow(c);
 			}
 			catch (std::exception& e) {
 				fprintf(stderr, "%s: error in onlinenotification thread: %s\n", _myAddressStr.c_str(), e.what());
+			}
+			if (c) {
+				_pool->unborrow(c);
 			}
 		}
 
