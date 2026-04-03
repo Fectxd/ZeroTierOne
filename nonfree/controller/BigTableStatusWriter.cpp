@@ -85,6 +85,7 @@ void BigTableStatusWriter::writePending()
 		toWrite.swap(_pending);
 	}
 	if (toWrite.empty()) {
+		fprintf(stderr, "BigTableStatusWriter::writePending: nothing to write\n");
 		return;
 	}
 

@@ -1539,11 +1539,10 @@ void CentralDB::onlineNotificationThread()
 					lastOnline.swap(_lastOnline);
 				}
 
-				uint64_t updateCount = 0;
+				uint64_t writtenCount = 0;
 				auto c = _pool->borrow();
 				pqxx::work w(*c->c);
 				for (auto i = lastOnline.begin(); i != lastOnline.end(); ++i) {
-					updateCount += 1;
 					uint64_t nwid_i = i->first.first;
 					char nwidTmp[64];
 					char memTmp[64];
@@ -1605,7 +1604,10 @@ void CentralDB::onlineNotificationThread()
 
 					_statusWriter->updateNodeStatus(networkId, memberId, os, arch, version, i->second.physicalAddress,
 													ts, frontend);
+					writtenCount++;
 				}
+				fprintf(stderr, "onlineNotificationThread: %llu entries in lastOnline, %llu passed to status writer\n",
+						(unsigned long long)lastOnline.size(), (unsigned long long)writtenCount);
 				_statusWriter->writePending();
 				w.commit();
 				_pool->unborrow(c);
