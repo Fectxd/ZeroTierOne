@@ -106,14 +106,18 @@ void PubSubListener::subscribe()
 					span->SetAttribute("ordering_key", m.ordering_key());
 
 					if (onNotification(m.data())) {
-						std::move(h).ack();
 						span->SetStatus(opentelemetry::trace::StatusCode::kOk);
-						return true;
 					}
 					else {
+						// Always ack even on failure — permanent errors (bad protobuf,
+						// missing fields, JSON parse) will never succeed on retry and
+						// would block all subsequent messages on this ordering key.
+						fprintf(stderr, "onNotification failed for message %s (ordering_key=%s); acking to avoid poison pill\n",
+							m.message_id().c_str(), m.ordering_key().c_str());
 						span->SetStatus(opentelemetry::trace::StatusCode::kError, "onNotification failed");
-						return false;
 					}
+					std::move(h).ack();
+					return true;
 				}
 			});
 
