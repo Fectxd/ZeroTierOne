@@ -39,6 +39,7 @@ class PubSubListener : public NotificationListener {
 	std::mutex _sessionMutex;
 	google::cloud::future<google::cloud::Status> _session;
 	bool _hasSession = false;
+	std::atomic<std::chrono::steady_clock::time_point> _lastMessageTime;
 	google::cloud::pubsub_admin::SubscriptionAdminClient _adminClient;
 	google::cloud::pubsub::Subscription* _subscription;
 	std::shared_ptr<google::cloud::pubsub::Subscriber> _subscriber;
