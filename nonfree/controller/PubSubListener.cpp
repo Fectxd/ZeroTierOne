@@ -87,44 +87,54 @@ void PubSubListener::subscribe()
 {
 	while (_run) {
 		try {
+			fprintf(stderr, "PubSubListener::subscribe: starting session for subscription %s\n", _subscription_id.c_str());
 			auto session = _subscriber->Subscribe([this](pubsub::Message const& m, pubsub::AckHandler h) {
-				auto provider = opentelemetry::trace::Provider::GetTracerProvider();
-				auto tracer = provider->GetTracer("PubSubListener");
+				try {
+					fprintf(stderr, "PubSubListener callback invoked: subscription=%s message_id=%s ordering_key=%s\n",
+						_subscription_id.c_str(), m.message_id().c_str(), m.ordering_key().c_str());
+					auto provider = opentelemetry::trace::Provider::GetTracerProvider();
+					auto tracer = provider->GetTracer("PubSubListener");
 
-				auto propagator = opentelemetry::context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
-				auto attrs = m.attributes();
-				std::map<std::string, std::string> attrs_map;
-				for (auto const& kv : m.attributes()) {
-					attrs_map.emplace(kv.first, kv.second);
-				}
-
-				OtelCarrier<std::map<std::string, std::string> > carrier(attrs_map);
-
-				auto current_ctx = opentelemetry::context::RuntimeContext::GetCurrent();
-				auto new_context = propagator->Extract(carrier, current_ctx);
-				auto remote_span = opentelemetry::trace::GetSpan(new_context);
-				auto remote_scope = tracer->WithActiveSpan(remote_span);
-
-				{
-					auto span = tracer->StartSpan("PubSubListener::onMessage");
-					auto scope = tracer->WithActiveSpan(span);
-					span->SetAttribute("message_id", m.message_id());
-					span->SetAttribute("ordering_key", m.ordering_key());
-
-					if (onNotification(m.data())) {
-						span->SetStatus(opentelemetry::trace::StatusCode::kOk);
+					auto propagator = opentelemetry::context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+					auto attrs = m.attributes();
+					std::map<std::string, std::string> attrs_map;
+					for (auto const& kv : m.attributes()) {
+						attrs_map.emplace(kv.first, kv.second);
 					}
-					else {
-						// Always ack even on failure — permanent errors (bad protobuf,
-						// missing fields, JSON parse) will never succeed on retry and
-						// would block all subsequent messages on this ordering key.
-						fprintf(stderr, "onNotification failed for message %s (ordering_key=%s); acking to avoid poison pill\n",
-							m.message_id().c_str(), m.ordering_key().c_str());
-						span->SetStatus(opentelemetry::trace::StatusCode::kError, "onNotification failed");
+
+					OtelCarrier<std::map<std::string, std::string> > carrier(attrs_map);
+
+					auto current_ctx = opentelemetry::context::RuntimeContext::GetCurrent();
+					auto new_context = propagator->Extract(carrier, current_ctx);
+					auto remote_span = opentelemetry::trace::GetSpan(new_context);
+					auto remote_scope = tracer->WithActiveSpan(remote_span);
+
+					{
+						auto span = tracer->StartSpan("PubSubListener::onMessage");
+						auto scope = tracer->WithActiveSpan(span);
+						span->SetAttribute("message_id", m.message_id());
+						span->SetAttribute("ordering_key", m.ordering_key());
+
+						if (onNotification(m.data())) {
+							span->SetStatus(opentelemetry::trace::StatusCode::kOk);
+						}
+						else {
+							fprintf(stderr, "onNotification failed for message %s (ordering_key=%s); acking to avoid poison pill\n",
+								m.message_id().c_str(), m.ordering_key().c_str());
+							span->SetStatus(opentelemetry::trace::StatusCode::kError, "onNotification failed");
+						}
 					}
-					std::move(h).ack();
-					return true;
 				}
+				catch (const std::exception& e) {
+					fprintf(stderr, "PubSubListener callback exception: %s (subscription=%s message_id=%s)\n",
+						e.what(), _subscription_id.c_str(), m.message_id().c_str());
+				}
+				catch (...) {
+					fprintf(stderr, "PubSubListener callback unknown exception (subscription=%s message_id=%s)\n",
+						_subscription_id.c_str(), m.message_id().c_str());
+				}
+				std::move(h).ack();
+				return true;
 			});
 
 			{
