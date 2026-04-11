@@ -67,6 +67,12 @@ PubSubListener::PubSubListener(std::string controller_id, std::string project, s
 PubSubListener::~PubSubListener()
 {
 	_run = false;
+	{
+		std::lock_guard<std::mutex> lock(_sessionMutex);
+		if (_hasSession) {
+			_session.cancel();
+		}
+	}
 	if (_subscriberThread.joinable()) {
 		_subscriberThread.join();
 	}
@@ -121,15 +127,25 @@ void PubSubListener::subscribe()
 				}
 			});
 
-			auto result = session.wait_for(std::chrono::seconds(10));
-			if (result == std::future_status::timeout) {
-				session.cancel();
-				continue;
+			{
+				std::lock_guard<std::mutex> lock(_sessionMutex);
+				_session = std::move(session);
+				_hasSession = true;
 			}
 
-			if (! session.valid()) {
-				fprintf(stderr, "Subscription session no longer valid\n");
-				continue;
+			// Block until the session ends (server disconnect, error, or
+			// cancel from destructor).  Do NOT cancel on a timer — cancelling
+			// races with in-flight acks and silently drops messages,
+			// especially with ordering enabled.
+			auto status = _session.get();
+
+			{
+				std::lock_guard<std::mutex> lock(_sessionMutex);
+				_hasSession = false;
+			}
+
+			if (! status.ok()) {
+				fprintf(stderr, "Subscription session ended: %s\n", status.message().c_str());
 			}
 		}
 		catch (google::cloud::Status const& status) {
