@@ -106,8 +106,8 @@ if [ "$ZT_USE_PUBSUB" == "true" ]; then
         \"member_change_send_topic\": \"${ZT_PUBSUB_MEMBER_CHANGE_SEND_TOPIC}\",
         \"network_change_recv_topic\": \"${ZT_PUBSUB_NETWORK_CHANGE_RECV_TOPIC}\",
         \"network_change_send_topic\": \"${ZT_PUBSUB_NETWORK_CHANGE_SEND_TOPIC}\",
-        \"sso_send_topic\": \"${ZT_PUBSUB_SSO_SEND_TOPIC}\",
-        \"sso_recv_topic\": \"${ZT_PUBSUB_SSO_RECV_TOPIC}\"
+        \"sso_nonce_publish_topic\": \"${ZT_PUBSUB_SSO_NONCE_PUBLISH_TOPIC}\",
+        \"sso_auth_subscribe_topic\": \"${ZT_PUBSUB_SSO_AUTH_SUBSCRIBE_TOPIC}\"
     }
 "
 fi

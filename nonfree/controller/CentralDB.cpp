@@ -170,13 +170,13 @@ CentralDB::CentralDB(const Identity& myId,
 				_changeNotifier = std::make_shared<PubSubChangeNotifier>(_myAddressStr, cc->pubSubConfig->project_id,
 																		 cc->pubSubConfig->member_change_send_topic,
 																		 cc->pubSubConfig->network_change_send_topic);
-				if (! cc->pubSubConfig->sso_send_topic.empty()) {
+				if (! cc->pubSubConfig->sso_nonce_publish_topic.empty()) {
 					_ssoNonceWriter = std::make_shared<PubSubWriter>(cc->pubSubConfig->project_id,
-																	 cc->pubSubConfig->sso_send_topic, _myAddressStr);
+																	 cc->pubSubConfig->sso_nonce_publish_topic, _myAddressStr);
 				}
-				if (! cc->pubSubConfig->sso_recv_topic.empty()) {
+				if (! cc->pubSubConfig->sso_auth_subscribe_topic.empty()) {
 					_ssoAuthListener = std::make_shared<PubSubSSOListener>(_myAddressStr, cc->pubSubConfig->project_id,
-																		   cc->pubSubConfig->sso_recv_topic, _pool);
+																		   cc->pubSubConfig->sso_auth_subscribe_topic, _pool);
 				}
 			}
 			else {
