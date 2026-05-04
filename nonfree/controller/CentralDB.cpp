@@ -160,6 +160,7 @@ CentralDB::CentralDB(const Identity& myId,
 			else {
 				throw std::runtime_error("CentralDB: Redis listener mode selected but no Redis configuration provided");
 			}
+			break;
 		case LISTENER_MODE_PUBSUB:
 			fprintf(stderr, "Using PubSub for change listeners\n");
 			if (cc->pubSubConfig != NULL) {
@@ -171,12 +172,12 @@ CentralDB::CentralDB(const Identity& myId,
 																		 cc->pubSubConfig->member_change_send_topic,
 																		 cc->pubSubConfig->network_change_send_topic);
 				if (! cc->pubSubConfig->sso_nonce_publish_topic.empty()) {
-					_ssoNonceWriter = std::make_shared<PubSubWriter>(cc->pubSubConfig->project_id,
-																	 cc->pubSubConfig->sso_nonce_publish_topic, _myAddressStr);
+					_ssoNonceWriter = std::make_shared<PubSubWriter>(
+						cc->pubSubConfig->project_id, cc->pubSubConfig->sso_nonce_publish_topic, _myAddressStr);
 				}
 				if (! cc->pubSubConfig->sso_auth_subscribe_topic.empty()) {
-					_ssoAuthListener = std::make_shared<PubSubSSOListener>(_myAddressStr, cc->pubSubConfig->project_id,
-																		   cc->pubSubConfig->sso_auth_subscribe_topic, _pool);
+					_ssoAuthListener = std::make_shared<PubSubSSOListener>(
+						_myAddressStr, cc->pubSubConfig->project_id, cc->pubSubConfig->sso_auth_subscribe_topic, _pool);
 				}
 			}
 			else {
@@ -449,13 +450,6 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 		char authenticationURL[4096] = { 0 };
 		AuthInfo info;
 		info.enabled = true;
-
-		// if (memberId == "a10dccea52" && networkId == "8056c2e21c24673d") {
-		//	fprintf(stderr, "invalid authinfo for grant's machine\n");
-		//	info.version=1;
-		//	return info;
-		// }
-		//  fprintf(stderr, "CentralDB::updateMemberOnLoad: %s-%s\n", networkId.c_str(), memberId.c_str());
 		std::shared_ptr<PostgresConnection> c;
 		try {
 			c = _pool->borrow();
@@ -519,8 +513,6 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 							_ssoNonceWriter->publishSSONonceUpdate(nonce, nonceExpiration, networkId, memberId,
 																   frontend);
 						}
-
-						w.commit();
 					}
 					else {
 						// > 1 ?!?  Thats an error!
@@ -608,7 +600,7 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 							authorization_endpoint.c_str());
 				}
 			}
-
+			w.commit();
 			_pool->unborrow(c);
 		}
 		catch (std::exception& e) {
@@ -1103,7 +1095,7 @@ void CentralDB::commitThread()
 {
 	fprintf(stderr, "%s: commitThread start\n", _myAddressStr.c_str());
 	_queueItem qitem;
-	while (_commitQueue.get(qitem) & (_run == 1)) {
+	while (_commitQueue.get(qitem) && (_run == 1)) {
 		auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 		auto tracer = provider->GetTracer("CentralDB");
 
