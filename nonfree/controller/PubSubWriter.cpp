@@ -386,7 +386,7 @@ pbmessages::MemberChange_Member* memberFromJson(const nlohmann::json& j)
 		m->set_remote_trace_level(OSUtils::jsonInt(j["remoteTraceLevel"], 0));
 		m->set_remote_trace_target(OSUtils::jsonString(j["remoteTraceTarget"], ""));
 		m->set_sso_exempt(OSUtils::jsonBool(j["ssoExempt"], false));
-		m->set_auth_expiry_time(OSUtils::jsonInt(j["authExpiryTime"], 0));
+		m->set_auth_expiry_time(OSUtils::jsonInt(j["authenticationExpiryTime"], 0));
 	}
 	catch (const std::exception& e) {
 		fprintf(stderr, "Exception parsing member JSON: %s\n", e.what());
