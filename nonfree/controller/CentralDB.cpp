@@ -275,7 +275,7 @@ bool CentralDB::save(nlohmann::json& record, bool notifyListeners)
 			fprintf(stderr, "record is not an object?!?\n");
 			return false;
 		}
-		const std::string objtype = record["objtype"];
+		const std::string objtype = OSUtils::jsonString(record["objtype"], "");
 		if (objtype == "network") {
 			auto span = tracer->StartSpan("CentralDB::save::network");
 			auto scope = tracer->WithActiveSpan(span);
@@ -303,8 +303,6 @@ bool CentralDB::save(nlohmann::json& record, bool notifyListeners)
 			auto span = tracer->StartSpan("CentralDB::save::member");
 			auto scope = tracer->WithActiveSpan(span);
 
-			std::string networkId = record["nwid"];
-			std::string memberId = record["id"];
 			const uint64_t nwid = OSUtils::jsonIntHex(record["nwid"], 0ULL);
 			const uint64_t id = OSUtils::jsonIntHex(record["id"], 0ULL);
 			if ((id) && (nwid)) {
@@ -381,12 +379,11 @@ void CentralDB::eraseMember(const uint64_t networkId, const uint64_t memberId)
 	span->SetAttribute("network_id", Utils::hex(networkId, networkIdStr));
 	span->SetAttribute("member_id", Utils::hex10(memberId, memberIdStr));
 
-	char tmp2[24];
 	waitForReady();
 
 	_queueItem qi;
-	qi.jsonData["nwid"] = tmp2;
-	qi.jsonData["id"] = tmp2;
+	qi.jsonData["nwid"] = networkIdStr;
+	qi.jsonData["id"] = memberIdStr;
 	qi.jsonData["objtype"] = "_delete_member";
 	qi.notifyListeners = true;
 	OtelCarrier<std::map<std::string, std::string> > carrier(qi.traceContext);
@@ -707,22 +704,20 @@ void CentralDB::initializeNetworks()
 				config["v6AssignMode"]["rfc4193"] = false;
 			}
 			config["ssoEnabled"] = cfgtmp["ssoEnabled"].is_boolean() ? cfgtmp["ssoEnabled"].get<bool>() : false;
-			if (config["ssoConfig"].is_object()) {
-				config["ssoConfig"] = cfgtmp["ssoConfig"];
-			}
-			else {
-				config["ssoConfig"] = empty;
-			}
+			nlohmann::json ssocfg = cfgtmp["ssoConfig"].is_object() ? cfgtmp["ssoConfig"] : nlohmann::json::object();
+			ssocfg["ssoClientId"] = ssocfg["ssoClientId"].is_string() ? ssocfg["ssoClientId"].get<std::string>() : "";
+			ssocfg["ssoAuthorizationEndpoint"] = ssocfg["ssoAuthorizationEndpoint"].is_string()
+													 ? ssocfg["ssoAuthorizationEndpoint"].get<std::string>()
+													 : nullptr;
+			ssocfg["ssoIssuer"] = ssocfg["ssoIssuer"].is_string() ? ssocfg["ssoIssuer"].get<std::string>() : "";
+			ssocfg["ssoProvider"] = ssocfg["ssoProvider"].is_string() ? ssocfg["ssoProvider"].get<std::string>() : "";
+			config["ssoConfig"] = ssocfg;
 			config["objtype"] = "network";
 			config["routes"] = cfgtmp["routes"].is_array() ? cfgtmp["routes"] : json::array();
-			config["clientId"] = cfgtmp["clientId"].is_string() ? cfgtmp["clientId"].get<std::string>() : "";
-			config["authorizationEndpoint"] =
-				cfgtmp["authorizationEndpoint"].is_string() ? cfgtmp["authorizationEndpoint"].get<std::string>() : "";
-			config["provider"] = cfgtmp["ssoProvider"].is_string() ? cfgtmp["ssoProvider"].get<std::string>() : "";
 			if (! cfgtmp["dns"].is_object()) {
-				cfgtmp["dns"] = json::object();
-				cfgtmp["dns"]["domain"] = "";
-				cfgtmp["dns"]["servers"] = json::array();
+				config["dns"] = json::object();
+				config["dns"]["domain"] = "";
+				config["dns"]["servers"] = json::array();
 			}
 			else {
 				config["dns"] = cfgtmp["dns"];
@@ -826,7 +821,7 @@ void CentralDB::initializeMembers()
 				"(EXTRACT(EPOCH FROM nm.last_authorized_time AT TIME ZONE 'UTC')*1000)::bigint, "
 				"(EXTRACT(EPOCH FROM nm.last_deauthorized_time AT TIME ZONE 'UTC')*1000)::bigint, "
 				"nm.remote_trace_level, nm.remote_trace_target, nm.revision, nm.capabilities, nm.tags, "
-				"nm.frontend "
+				"nm.frontend, nm.version_major, nm.version_minor, nm.version_revision, nm.version_protocol "
 				"FROM network_memberships_ctl nm "
 				"INNER JOIN networks_ctl n "
 				"  ON nm.network_id = n.id "
@@ -872,6 +867,14 @@ void CentralDB::initializeMembers()
 				   std::optional<std::string>	// tags
 				   ,
 				   std::string	 // frontend
+				   ,
+				   std::optional<int32_t>	// version_major
+				   ,
+				   std::optional<int32_t>	// version_minor
+				   ,
+				   std::optional<int32_t>	// version_revision
+				   ,
+				   std::optional<int32_t>	// version_protocol
 				   >
 			row;
 
@@ -907,12 +910,13 @@ void CentralDB::initializeMembers()
 
 			config["objtype"] = "member";
 			config["id"] = memberId;
-			config["address"] = identity.value_or("");
+			config["address"] = memberId;
+			config["identity"] = identity.value_or("");
 			config["nwid"] = networkId;
 			config["authorized"] = authorized;
 			config["activeBridge"] = active_bridge.value_or(false);
 			config["ipAssignments"] = json::array();
-			if (ip_assignments != "{}") {
+			if (! ip_assignments.empty() && ip_assignments != "{}" && ip_assignments != "[]") {
 				std::string tmp = ip_assignments.substr(1, ip_assignments.length() - 2);
 				std::vector<std::string> addrs = split(tmp, ',');
 				for (auto it = addrs.begin(); it != addrs.end(); ++it) {
@@ -923,7 +927,7 @@ void CentralDB::initializeMembers()
 			config["creationTime"] = creation_time.value_or(0);
 			config["lastAuthorizedTime"] = last_authorized_time.value_or(0);
 			config["lastDeauthorizedTime"] = last_deauthorized_time.value_or(0);
-			config["noAutoAssignIPs"] = no_auto_assign_ips.value_or(false);
+			config["noAutoAssignIps"] = no_auto_assign_ips.value_or(false);
 			config["remoteTraceLevel"] = remote_trace_level.value_or(0);
 			config["remoteTraceTarget"] = remote_trace_target.value_or(nullptr);
 			config["revision"] = revision.value_or(0);
@@ -931,6 +935,10 @@ void CentralDB::initializeMembers()
 			config["authenticationExpiryTime"] = authentication_expiry_time.value_or(0);
 			config["tags"] = json::parse(tags.value_or("[]"));
 			config["frontend"] = std::get<17>(row);
+			config["vMajor"] = std::get<18>(row).value_or(-1);
+			config["vMinor"] = std::get<19>(row).value_or(-1);
+			config["vRev"] = std::get<20>(row).value_or(-1);
+			config["vProto"] = std::get<21>(row).value_or(-1);
 
 			Metrics::member_count++;
 
@@ -1074,10 +1082,10 @@ void CentralDB::heartbeat()
 		try {
 			if (_listenerMode == LISTENER_MODE_REDIS && _redisMemberStatus) {
 				if (_cc->redisConfig->clusterMode) {
-					_cluster->zadd("controllers", "controllerId", ts);
+					_cluster->zadd("controllers", controllerId, ts);
 				}
 				else {
-					_redis->zadd("controllers", "controllerId", ts);
+					_redis->zadd("controllers", controllerId, ts);
 				}
 			}
 		}
@@ -1133,7 +1141,7 @@ void CentralDB::commitThread()
 			Metrics::pgsql_commit_ticks++;
 			try {
 				nlohmann::json& config = (qitem.jsonData);
-				const std::string objtype = config["objtype"];
+				const std::string objtype = OSUtils::jsonString(config["objtype"], "");
 				if (objtype == "member") {
 					auto mspan = tracer->StartSpan("CentralDB::commitThread::member");
 					auto mscope = tracer->WithActiveSpan(mspan);
@@ -1145,12 +1153,12 @@ void CentralDB::commitThread()
 					try {
 						pqxx::work w(*c->c);
 
-						memberId = config["id"];
-						networkId = config["nwid"];
+						memberId = OSUtils::jsonString(config["id"], "");
+						networkId = OSUtils::jsonString(config["nwid"], "");
 
-						std::string target = "NULL";
-						if (! config["remoteTraceTarget"].is_null()) {
-							target = config["remoteTraceTarget"];
+						std::optional<std::string> target;
+						if (config["remoteTraceTarget"].is_string()) {
+							target = config["remoteTraceTarget"].get<std::string>();
 						}
 
 						// get network and the frontend it is assigned to
@@ -1177,16 +1185,15 @@ void CentralDB::commitThread()
 						int membercount = mrow[0].as<int>();
 						bool isNewMember = (membercount == 0);
 
-						std::string change_source;
-						if (! config["change_source"].is_null()) {
-							change_source = config["change_source"];
-						}
-						else {
-							change_source = "controller";
+						std::string change_source = "controller";
+						if (config["change_source"].is_string()) {
+							change_source = config["change_source"].get<std::string>();
 						}
 						if (! isNewMember && change_source != "controller" && frontend != change_source) {
 							// if it is not a new member and the change source is not the controller and doesn't match
 							// the frontend, don't apply the change.
+							w.abort();
+							_pool->unborrow(c);
 							continue;
 						}
 
@@ -1211,6 +1218,14 @@ void CentralDB::commitThread()
 							vRev = 0;
 						if (vProto < 0)
 							vProto = 0;
+
+						// Capture old DB state before INSERT so PubSub notifier sees real prior values.
+						// Must happen before w.commit() — _getNetworkMember reuses this transaction.
+						nlohmann::json oldMember;
+						if (! isNewMember && _listenerMode == LISTENER_MODE_PUBSUB
+							&& (config["change_source"].is_null() || config["change_source"] == "controller")) {
+							oldMember = _getNetworkMember(w, networkId, memberId);
+						}
 
 						pqxx::result res =
 							w.exec(
@@ -1244,7 +1259,7 @@ void CentralDB::commitThread()
 								 "version_minor = EXCLUDED.version_minor, version_revision = "
 								 "EXCLUDED.version_revision, "
 								 "version_protocol = EXCLUDED.version_protocol, "
-								 "frontend = EXCLUDED.frontend",
+								 "frontend = EXCLUDED.frontend, last_modified = now()",
 								 pqxx::params { memberId,
 												networkId,
 												OSUtils::jsonBool(config["authorized"], false),
@@ -1272,15 +1287,9 @@ void CentralDB::commitThread()
 						w.commit();
 
 						if (_listenerMode == LISTENER_MODE_PUBSUB) {
-							// Publish change to pubsub stream
-
+							// Publish change to pubsub stream — oldMember was captured before INSERT
 							if (config["change_source"].is_null() || config["change_source"] == "controller") {
-								nlohmann::json oldMember;
-								nlohmann::json newMember = config;
-								if (! isNewMember) {
-									oldMember = _getNetworkMember(w, networkId, memberId);
-								}
-								_changeNotifier->notifyMemberChange(oldMember, newMember, frontend);
+								_changeNotifier->notifyMemberChange(oldMember, config, frontend);
 							}
 						}
 
@@ -1316,7 +1325,7 @@ void CentralDB::commitThread()
 						// fprintf(stderr, "%s: commitThread: network\n", _myAddressStr.c_str());
 						pqxx::work w(*c->c);
 
-						std::string id = config["id"];
+						std::string id = OSUtils::jsonString(config["id"], "");
 
 						pqxx::row nwrow =
 							w.exec("SELECT COUNT(id) frontend FROM networks_ctl WHERE id = $1", pqxx::params { id })
@@ -1333,14 +1342,24 @@ void CentralDB::commitThread()
 						}
 
 						std::string change_source;
-						if (! config["change_source"].is_null()) {
-							change_source = config["change_source"];
+						if (config["change_source"].is_string()) {
+							change_source = config["change_source"].get<std::string>();
 						}
 
 						if (! isNewNetwork && change_source != "controller" && frontend != change_source) {
 							// if it is not a new network and the change source is not the controller and doesn't match
 							// the frontend, don't apply the change.
+							w.abort();
+							_pool->unborrow(c);
 							continue;
+						}
+
+						// Capture old DB state before INSERT so PubSub notifier sees real prior values.
+						// Must happen before w.commit() — _getNetwork reuses this transaction.
+						nlohmann::json oldNetwork;
+						if (! isNewNetwork && _listenerMode == LISTENER_MODE_PUBSUB
+							&& (config["change_source"].is_null() || config["change_source"] == "controller")) {
+							oldNetwork = _getNetwork(w, id);
 						}
 
 						pqxx::result res = w.exec(
@@ -1348,22 +1367,17 @@ void CentralDB::commitThread()
 							"VALUES ($1, $2, $3, $4, $5, $6) "
 							"ON CONFLICT (id) DO UPDATE SET "
 							"name = EXCLUDED.name, configuration = EXCLUDED.configuration, revision = "
-							"EXCLUDED.revision+1, "
-							"frontend = EXCLUDED.frontend",
+							"EXCLUDED.revision, "
+							"frontend = EXCLUDED.frontend, last_modified = now()",
 							pqxx::params { id, OSUtils::jsonString(config["name"], ""), OSUtils::jsonDump(config, -1),
-										   _myAddressStr, ((uint64_t)config["revision"]), change_source });
+										   _myAddressStr, OSUtils::jsonInt(config["revision"], 0), change_source });
 
 						w.commit();
 
 						if (_listenerMode == LISTENER_MODE_PUBSUB) {
-							// Publish change to pubsub stream
+							// Publish change to pubsub stream — oldNetwork was captured before INSERT
 							if (config["change_source"].is_null() || config["change_source"] == "controller") {
-								nlohmann::json oldNetwork;
-								nlohmann::json newNetwork = config;
-								if (! isNewNetwork) {
-									oldNetwork = _getNetwork(w, id);
-								}
-								_changeNotifier->notifyNetworkChange(oldNetwork, newNetwork, frontend);
+								_changeNotifier->notifyNetworkChange(oldNetwork, config, frontend);
 							}
 						}
 
@@ -1387,7 +1401,7 @@ void CentralDB::commitThread()
 					}
 					if (_listenerMode == LISTENER_MODE_REDIS && _redisMemberStatus) {
 						try {
-							std::string id = config["id"];
+							std::string id = OSUtils::jsonString(config["id"], "");
 							std::string controllerId = _myAddressStr.c_str();
 							std::string key = "networks:{" + controllerId + "}";
 							if (_cc->redisConfig->clusterMode) {
@@ -1410,13 +1424,13 @@ void CentralDB::commitThread()
 					// fprintf(stderr, "%s: commitThread: delete network\n", _myAddressStr.c_str());
 					try {
 						pqxx::work w(*c->c);
-						std::string networkId = config["id"];
+						std::string networkId = OSUtils::jsonString(config["id"], "");
 						w.exec("DELETE FROM network_memberships_ctl WHERE network_id = $1", pqxx::params { networkId });
 						w.exec("DELETE FROM networks_ctl WHERE id = $1", pqxx::params { networkId });
 
 						w.commit();
 
-						uint64_t nwidInt = OSUtils::jsonIntHex(config["nwid"], 0ULL);
+						uint64_t nwidInt = OSUtils::jsonIntHex(config["id"], 0ULL);
 						json oldConfig;
 						get(nwidInt, oldConfig);
 						json empty;
@@ -1428,7 +1442,7 @@ void CentralDB::commitThread()
 					}
 					if (_listenerMode == LISTENER_MODE_REDIS && _redisMemberStatus) {
 						try {
-							std::string id = config["id"];
+							std::string id = OSUtils::jsonString(config["id"], "");
 							std::string controllerId = _myAddressStr.c_str();
 							std::string key = "networks:{" + controllerId + "}";
 							if (_cc->redisConfig->clusterMode) {
@@ -1454,8 +1468,8 @@ void CentralDB::commitThread()
 					try {
 						pqxx::work w(*c->c);
 
-						std::string memberId = config["id"];
-						std::string networkId = config["nwid"];
+						std::string memberId = OSUtils::jsonString(config["id"], "");
+						std::string networkId = OSUtils::jsonString(config["nwid"], "");
 
 						pqxx::result res =
 							w.exec("DELETE FROM network_memberships_ctl WHERE device_id = $1 AND network_id = $2",
@@ -1480,8 +1494,8 @@ void CentralDB::commitThread()
 					}
 					if (_listenerMode == LISTENER_MODE_REDIS && _redisMemberStatus) {
 						try {
-							std::string memberId = config["id"];
-							std::string networkId = config["nwid"];
+							std::string memberId = OSUtils::jsonString(config["id"], "");
+							std::string networkId = OSUtils::jsonString(config["nwid"], "");
 							std::string controllerId = _myAddressStr.c_str();
 							std::string key = "network-nodes-all:{" + controllerId + "}:" + networkId;
 							if (_cc->redisConfig->clusterMode) {
@@ -1631,7 +1645,7 @@ nlohmann::json CentralDB::_getNetworkMember(pqxx::work& tx, const std::string ne
 				  "(EXTRACT(EPOCH FROM nm.last_authorized_time AT TIME ZONE 'UTC')*1000)::bigint, "
 				  "(EXTRACT(EPOCH FROM nm.last_deauthorized_time AT TIME ZONE 'UTC')*1000)::bigint, "
 				  "nm.remote_trace_level, nm.remote_trace_target, nm.revision, nm.capabilities, nm.tags, "
-				  "nm.frontend "
+				  "nm.frontend, nm.version_major, nm.version_minor, nm.version_revision, nm.version_protocol "
 				  "FROM network_memberships_ctl nm "
 				  "INNER JOIN networks_ctl n "
 				  "  ON nm.network_id = n.id "
@@ -1668,15 +1682,24 @@ nlohmann::json CentralDB::_getNetworkMember(pqxx::work& tx, const std::string ne
 		std::optional<std::string> tags =
 			row[16].is_null() ? std::optional<std::string>() : std::optional<std::string>(row[16].as<std::string>());
 		std::string frontend = row[17].is_null() ? "" : row[17].as<std::string>();
+		std::optional<int32_t> version_major =
+			row[18].is_null() ? std::optional<int32_t>() : std::optional<int32_t>(row[18].as<int32_t>());
+		std::optional<int32_t> version_minor =
+			row[19].is_null() ? std::optional<int32_t>() : std::optional<int32_t>(row[19].as<int32_t>());
+		std::optional<int32_t> version_revision =
+			row[20].is_null() ? std::optional<int32_t>() : std::optional<int32_t>(row[20].as<int32_t>());
+		std::optional<int32_t> version_protocol =
+			row[21].is_null() ? std::optional<int32_t>() : std::optional<int32_t>(row[21].as<int32_t>());
 
 		out["objtype"] = "member";
 		out["id"] = memberID;
 		out["nwid"] = networkID;
-		out["address"] = identity.value_or("");
+		out["address"] = memberID;
+		out["identity"] = identity.value_or("");
 		out["authorized"] = authorized;
 		out["activeBridge"] = active_bridge.value_or(false);
 		out["ipAssignments"] = json::array();
-		if (ip_assignments != "{}" && ip_assignments != "[]") {
+		if (! ip_assignments.empty() && ip_assignments != "{}" && ip_assignments != "[]") {
 			std::string tmp = ip_assignments.substr(1, ip_assignments.length() - 2);
 			std::vector<std::string> addrs = split(tmp, ',');
 			for (auto it = addrs.begin(); it != addrs.end(); ++it) {
@@ -1695,6 +1718,10 @@ nlohmann::json CentralDB::_getNetworkMember(pqxx::work& tx, const std::string ne
 		out["authenticationExpiryTime"] = authentication_expiry_time.value_or(0);
 		out["tags"] = json::parse(tags.value_or("[]"));
 		out["frontend"] = frontend;
+		out["vMajor"] = version_major.value_or(-1);
+		out["vMinor"] = version_minor.value_or(-1);
+		out["vRev"] = version_revision.value_or(-1);
+		out["vProto"] = version_protocol.value_or(-1);
 	}
 	catch (std::exception& e) {
 		fprintf(stderr, "ERROR: Error getting network member %s-%s: %s\n", networkID.c_str(), memberID.c_str(),
@@ -1772,12 +1799,16 @@ nlohmann::json CentralDB::_getNetwork(pqxx::work& tx, const std::string networkI
 			out["v6AssignMode"]["rfc4193"] = false;
 		}
 		out["ssoEnabled"] = cfgtmp["ssoEnabled"].is_boolean() ? cfgtmp["ssoEnabled"].get<bool>() : false;
+		nlohmann::json ssocfg = cfgtmp["ssoConfig"].is_object() ? cfgtmp["ssoConfig"] : nlohmann::json::object();
+		ssocfg["ssoClientId"] = ssocfg["ssoClientId"].is_string() ? ssocfg["ssoClientId"].get<std::string>() : "";
+		ssocfg["ssoAuthorizationEndpoint"] = ssocfg["ssoAuthorizationEndpoint"].is_string()
+												 ? ssocfg["ssoAuthorizationEndpoint"].get<std::string>()
+												 : nullptr;
+		ssocfg["ssoIssuer"] = ssocfg["ssoIssuer"].is_string() ? ssocfg["ssoIssuer"].get<std::string>() : "";
+		ssocfg["ssoProvider"] = ssocfg["ssoProvider"].is_string() ? ssocfg["ssoProvider"].get<std::string>() : "";
+		out["ssoConfig"] = ssocfg;
 		out["objtype"] = "network";
 		out["routes"] = cfgtmp["routes"].is_array() ? cfgtmp["routes"] : json::array();
-		out["clientId"] = cfgtmp["clientId"].is_string() ? cfgtmp["clientId"].get<std::string>() : "";
-		out["authorizationEndpoint"] =
-			cfgtmp["authorizationEndpoint"].is_string() ? cfgtmp["authorizationEndpoint"].get<std::string>() : nullptr;
-		out["provider"] = cfgtmp["ssoProvider"].is_string() ? cfgtmp["ssoProvider"].get<std::string>() : "";
 		if (! cfgtmp["dns"].is_object()) {
 			cfgtmp["dns"] = json::object();
 			cfgtmp["dns"]["domain"] = "";

@@ -51,7 +51,7 @@ void DB::initNetwork(nlohmann::json& network)
 		network["mtu"] = ZT_DEFAULT_MTU;
 	if (! network.count("remoteTraceTarget"))
 		network["remoteTraceTarget"] = nlohmann::json();
-	if (! network.count("removeTraceLevel"))
+	if (! network.count("remoteTraceLevel"))
 		network["remoteTraceLevel"] = 0;
 	if (! network.count("rulesSource"))
 		network["rulesSource"] = "";
@@ -67,6 +67,13 @@ void DB::initNetwork(nlohmann::json& network)
 		network["clientId"] = "";
 	if (! network.count("authorizationEndpoint"))
 		network["authorizationEndpoint"] = "";
+	if (! network.count("ssoConfig")) {
+		network["ssoConfig"] = nlohmann::json::object();
+		network["ssoConfig"]["ssoClientId"] = "";
+		network["ssoConfig"]["ssoAuthorizationEndpoint"] = nullptr;
+		network["ssoConfig"]["ssoIssuer"] = "";
+		network["ssoConfig"]["ssoProvider"] = "";
+	}
 
 	network["objtype"] = "network";
 }
@@ -116,7 +123,7 @@ void DB::initMember(nlohmann::json& member)
 		member["vProto"] = -1;
 	if (! member.count("remoteTraceTarget"))
 		member["remoteTraceTarget"] = nlohmann::json();
-	if (! member.count("removeTraceLevel"))
+	if (! member.count("remoteTraceLevel"))
 		member["remoteTraceLevel"] = 0;
 	member["objtype"] = "member";
 }
