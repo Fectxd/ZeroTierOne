@@ -20,7 +20,7 @@ class ControllerChangeNotifier {
 
 	virtual void notifyMemberChange(
 		const nlohmann::json& oldMember,
-		const nlohmann::json newMember,
+		const nlohmann::json& newMember,
 		const std::string& frontend = "") = 0;
 };
 
@@ -40,7 +40,7 @@ class PubSubChangeNotifier : public ControllerChangeNotifier {
 
 	virtual void notifyMemberChange(
 		const nlohmann::json& oldMember,
-		const nlohmann::json newMember,
+		const nlohmann::json& newMember,
 		const std::string& frontend = "") override;
 
   private:

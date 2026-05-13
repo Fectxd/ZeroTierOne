@@ -378,10 +378,10 @@ pbmessages::MemberChange_Member* memberFromJson(const nlohmann::json& j)
 		m->set_last_deauthorized_time(OSUtils::jsonInt(j["lastDeauthorizedTime"], 0));
 		m->set_last_authorized_credential_type(OSUtils::jsonString(j["lastAuthorizedCredentialType"], ""));
 		m->set_last_authorized_credential(OSUtils::jsonString(j["lastAuthorizedCredential"], ""));
-		m->set_version_major(OSUtils::jsonInt(j["versionMajor"], 0));
-		m->set_version_minor(OSUtils::jsonInt(j["versionMinor"], 0));
-		m->set_version_rev(OSUtils::jsonInt(j["versionRev"], 0));
-		m->set_version_protocol(OSUtils::jsonInt(j["versionProtocol"], 0));
+		m->set_version_major(OSUtils::jsonInt(j["vMajor"], 0));
+		m->set_version_minor(OSUtils::jsonInt(j["vMinor"], 0));
+		m->set_version_rev(OSUtils::jsonInt(j["vRev"], 0));
+		m->set_version_protocol(OSUtils::jsonInt(j["vProto"], 0));
 		m->set_remote_trace_level(OSUtils::jsonInt(j["remoteTraceLevel"], 0));
 		m->set_remote_trace_target(OSUtils::jsonString(j["remoteTraceTarget"], ""));
 		m->set_sso_exempt(OSUtils::jsonBool(j["ssoExempt"], false));

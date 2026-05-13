@@ -400,6 +400,9 @@ nlohmann::json toJson(const pbmessages::NetworkChange_Network& nc, pbmessages::N
 	out["mtu"] = nc.mtu();
 	out["multicastLimit"] = nc.multicast_limit();
 	out["private"] = nc.is_private();
+	out["enableBroadcast"] = nc.enable_broadcast();
+	out["creationTime"] = nc.creation_time();
+	out["revision"] = nc.revision();
 	out["remoteTraceLevel"] = nc.remote_trace_level();
 	if (nc.has_remote_trace_target()) {
 		out["remoteTraceTarget"] = nc.remote_trace_target();
@@ -630,10 +633,10 @@ nlohmann::json toJson(const pbmessages::MemberChange_Member& mc, pbmessages::Mem
 		out["tags"] = nlohmann::json::array();
 	}
 
-	out["versionMajor"] = mc.version_major();
-	out["versionMinor"] = mc.version_minor();
-	out["versionRev"] = mc.version_rev();
-	out["versionProtocol"] = mc.version_protocol();
+	out["vMajor"] = mc.version_major();
+	out["vMinor"] = mc.version_minor();
+	out["vRev"] = mc.version_rev();
+	out["vProto"] = mc.version_protocol();
 	switch (source) {
 		case pbmessages::MemberChange_ChangeSource_CV1:
 			out["change_source"] = "cv1";

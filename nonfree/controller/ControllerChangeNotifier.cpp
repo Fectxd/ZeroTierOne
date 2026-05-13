@@ -29,7 +29,7 @@ void PubSubChangeNotifier::notifyNetworkChange(
 
 void PubSubChangeNotifier::notifyMemberChange(
 	const nlohmann::json& oldMember,
-	const nlohmann::json newMember,
+	const nlohmann::json& newMember,
 	const std::string& frontend)
 {
 	_memberChangeWriter->publishMemberChange(oldMember, newMember, frontend);

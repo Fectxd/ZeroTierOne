@@ -675,7 +675,7 @@ void CentralDB::initializeNetworks()
 			config["revision"] = revision.value_or(0);
 			config["capabilities"] = cfgtmp["capabilities"].is_array() ? cfgtmp["capabilities"] : json::array();
 			config["enableBroadcast"] =
-				cfgtmp["enableBroadcast"].is_boolean() ? cfgtmp["enableBroadcast"].get<bool>() : false;
+				cfgtmp["enableBroadcast"].is_boolean() ? cfgtmp["enableBroadcast"].get<bool>() : true;
 			config["mtu"] = cfgtmp["mtu"].is_number() ? cfgtmp["mtu"].get<int32_t>() : 2800;
 			config["multicastLimit"] =
 				cfgtmp["multicastLimit"].is_number() ? cfgtmp["multicastLimit"].get<int32_t>() : 64;
@@ -1367,8 +1367,7 @@ void CentralDB::commitThread()
 							"VALUES ($1, $2, $3, $4, $5, $6) "
 							"ON CONFLICT (id) DO UPDATE SET "
 							"name = EXCLUDED.name, configuration = EXCLUDED.configuration, revision = "
-							"EXCLUDED.revision, "
-							"frontend = EXCLUDED.frontend, last_modified = now()",
+							"EXCLUDED.revision, last_modified = now()",
 							pqxx::params { id, OSUtils::jsonString(config["name"], ""), OSUtils::jsonDump(config, -1),
 										   _myAddressStr, OSUtils::jsonInt(config["revision"], 0), change_source });
 
@@ -1771,7 +1770,7 @@ nlohmann::json CentralDB::_getNetwork(pqxx::work& tx, const std::string networkI
 		out["lastModified"] = last_modified.value_or(0);
 		out["revision"] = revision.value_or(0);
 		out["capabilities"] = cfgtmp["capabilities"].is_array() ? cfgtmp["capabilities"] : json::array();
-		out["enableBroadcast"] = cfgtmp["enableBroadcast"].is_boolean() ? cfgtmp["enableBroadcast"].get<bool>() : false;
+		out["enableBroadcast"] = cfgtmp["enableBroadcast"].is_boolean() ? cfgtmp["enableBroadcast"].get<bool>() : true;
 		out["mtu"] = cfgtmp["mtu"].is_number() ? cfgtmp["mtu"].get<int32_t>() : 2800;
 		out["multicastLimit"] = cfgtmp["multicastLimit"].is_number() ? cfgtmp["multicastLimit"].get<int32_t>() : 64;
 		out["private"] = cfgtmp["private"].is_boolean() ? cfgtmp["private"].get<bool>() : true;

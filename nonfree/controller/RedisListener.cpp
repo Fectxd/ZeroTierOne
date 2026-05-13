@@ -91,7 +91,6 @@ void RedisNetworkListener::listen()
 						for (auto a : attrs) {
 							try {
 								tmp = nlohmann::json::parse(a.second);
-								tmp = nlohmann::json::parse(a.second);
 								nlohmann::json& ov = tmp["old_val"];
 								nlohmann::json& nv = tmp["new_val"];
 								nlohmann::json oldConfig, newConfig;
