@@ -293,11 +293,10 @@ pbmessages::NetworkChange_Network* networkFromJson(const nlohmann::json& j)
 		n->set_sso_enabled(OSUtils::jsonBool(j["ssoEnabled"], false));
 		nlohmann::json ssocfg = j["ssoConfig"];
 		if (ssocfg.is_object()) {
-			n->set_sso_provider(OSUtils::jsonString(ssocfg["provider"], ""));
-			n->set_sso_client_id(OSUtils::jsonString(ssocfg["clientId"], ""));
-			n->set_sso_authorization_endpoint(OSUtils::jsonString(ssocfg["authorizationEndpoint"], ""));
-			n->set_sso_issuer(OSUtils::jsonString(ssocfg["issuer"], ""));
-			n->set_sso_provider(OSUtils::jsonString(ssocfg["provider"], ""));
+			n->set_sso_client_id(OSUtils::jsonString(ssocfg["ssoClientId"], ""));
+			n->set_sso_authorization_endpoint(OSUtils::jsonString(ssocfg["ssoAuthorizationEndpoint"], ""));
+			n->set_sso_issuer(OSUtils::jsonString(ssocfg["ssoIssuer"], ""));
+			n->set_sso_provider(OSUtils::jsonString(ssocfg["ssoProvider"], ""));
 		}
 
 		n->set_rules_source(OSUtils::jsonString(j["rulesSource"], ""));
