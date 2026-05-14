@@ -70,6 +70,7 @@ void DB::initNetwork(nlohmann::json& network)
 	if (! network.count("ssoConfig")) {
 		network["ssoConfig"] = nlohmann::json::object();
 		network["ssoConfig"]["ssoClientId"] = "";
+		network["ssoConfig"]["ssoLinkedId"] = "";
 		network["ssoConfig"]["ssoAuthorizationEndpoint"] = nullptr;
 		network["ssoConfig"]["ssoIssuer"] = "";
 		network["ssoConfig"]["ssoProvider"] = "";

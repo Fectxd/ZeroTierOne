@@ -707,11 +707,7 @@ void CentralDB::initializeNetworks()
 			config["ssoEnabled"] = cfgtmp["ssoEnabled"].is_boolean() ? cfgtmp["ssoEnabled"].get<bool>() : false;
 			nlohmann::json ssocfg = cfgtmp["ssoConfig"].is_object() ? cfgtmp["ssoConfig"] : nlohmann::json::object();
 			ssocfg["ssoClientId"] = ssocfg["ssoClientId"].is_string() ? ssocfg["ssoClientId"].get<std::string>() : "";
-			ssocfg["ssoAuthorizationEndpoint"] = ssocfg["ssoAuthorizationEndpoint"].is_string()
-													 ? ssocfg["ssoAuthorizationEndpoint"].get<std::string>()
-													 : nullptr;
-			ssocfg["ssoIssuer"] = ssocfg["ssoIssuer"].is_string() ? ssocfg["ssoIssuer"].get<std::string>() : "";
-			ssocfg["ssoProvider"] = ssocfg["ssoProvider"].is_string() ? ssocfg["ssoProvider"].get<std::string>() : "";
+			ssocfg["ssoLinkedId"] = ssocfg["ssoLinkedId"].is_string() ? ssocfg["ssoLinkedId"].get<std::string>() : "";
 			config["ssoConfig"] = ssocfg;
 			config["objtype"] = "network";
 			config["routes"] = cfgtmp["routes"].is_array() ? cfgtmp["routes"] : json::array();
@@ -1801,11 +1797,7 @@ nlohmann::json CentralDB::_getNetwork(pqxx::work& tx, const std::string networkI
 		out["ssoEnabled"] = cfgtmp["ssoEnabled"].is_boolean() ? cfgtmp["ssoEnabled"].get<bool>() : false;
 		nlohmann::json ssocfg = cfgtmp["ssoConfig"].is_object() ? cfgtmp["ssoConfig"] : nlohmann::json::object();
 		ssocfg["ssoClientId"] = ssocfg["ssoClientId"].is_string() ? ssocfg["ssoClientId"].get<std::string>() : "";
-		ssocfg["ssoAuthorizationEndpoint"] = ssocfg["ssoAuthorizationEndpoint"].is_string()
-												 ? ssocfg["ssoAuthorizationEndpoint"].get<std::string>()
-												 : nullptr;
-		ssocfg["ssoIssuer"] = ssocfg["ssoIssuer"].is_string() ? ssocfg["ssoIssuer"].get<std::string>() : "";
-		ssocfg["ssoProvider"] = ssocfg["ssoProvider"].is_string() ? ssocfg["ssoProvider"].get<std::string>() : "";
+		ssocfg["ssoLinkedId"] = ssocfg["ssoLinkedId"].is_string() ? ssocfg["ssoLinkedId"].get<std::string>() : "";
 		out["ssoConfig"] = ssocfg;
 		out["objtype"] = "network";
 		out["routes"] = cfgtmp["routes"].is_array() ? cfgtmp["routes"] : json::array();
