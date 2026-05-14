@@ -531,16 +531,8 @@ nlohmann::json toJson(const pbmessages::NetworkChange_Network& nc, pbmessages::N
 			sso["ssoClientId"] = nc.sso_client_id();
 		}
 
-		if (nc.has_sso_authorization_endpoint()) {
-			sso["ssoAuthorizationEndpoint"] = nc.sso_authorization_endpoint();
-		}
-
-		if (nc.has_sso_issuer()) {
-			sso["ssoIssuer"] = nc.sso_issuer();
-		}
-
-		if (nc.has_sso_provider()) {
-			sso["ssoProvider"] = nc.sso_provider();
+		if (nc.has_sso_linked_id()) {
+			sso["ssoLinkedId"] = nc.sso_linked_id();
 		}
 	}
 	out["ssoConfig"] = sso;

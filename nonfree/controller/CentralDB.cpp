@@ -532,6 +532,7 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 					"FROM oidc_config oc "
 					"INNER JOIN networks_ctl n "
 					" ON oc.client_id = n.configuration->'ssoConfig'->>'ssoClientId' "
+					" AND oc.linked_id = n.configuration->'ssoConfig'->>'ssoLinkedId' "
 					"WHERE n.id = $1 AND n.configuration->>'ssoEnabled' = 'true' ",
 					pqxx::params { networkId });
 
