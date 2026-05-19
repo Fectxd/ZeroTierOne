@@ -1359,14 +1359,20 @@ void CentralDB::commitThread()
 							oldNetwork = _getNetwork(w, id);
 						}
 
+						// For new networks, tag the row with the originating frontend (change_source).
+						// For existing networks, reuse the stored frontend so the ON CONFLICT update
+						// is self-healing rather than ownership-changing (a controller-originated
+						// message must not silently overwrite the per-network owner).
+						std::string frontendParam = isNewNetwork ? change_source : frontend;
+
 						pqxx::result res = w.exec(
 							"INSERT INTO networks_ctl (id, name, configuration, controller_id, revision, frontend) "
 							"VALUES ($1, $2, $3, $4, $5, $6) "
 							"ON CONFLICT (id) DO UPDATE SET "
 							"name = EXCLUDED.name, configuration = EXCLUDED.configuration, revision = "
-							"EXCLUDED.revision, last_modified = now()",
+							"EXCLUDED.revision, frontend = EXCLUDED.frontend, last_modified = now()",
 							pqxx::params { id, OSUtils::jsonString(config["name"], ""), OSUtils::jsonDump(config, -1),
-										   _myAddressStr, OSUtils::jsonInt(config["revision"], 0), change_source });
+										   _myAddressStr, OSUtils::jsonInt(config["revision"], 0), frontendParam });
 
 						w.commit();
 
