@@ -1153,7 +1153,9 @@ void CentralDB::commitThread()
 						memberId = OSUtils::jsonString(config["id"], "");
 						networkId = OSUtils::jsonString(config["nwid"], "");
 
-						std::optional<std::string> target;
+						// Default to "" so a null/absent remoteTraceTarget is written as an
+						// empty string rather than SQL NULL.
+						std::optional<std::string> target = "";
 						if (config["remoteTraceTarget"].is_string()) {
 							target = config["remoteTraceTarget"].get<std::string>();
 						}
