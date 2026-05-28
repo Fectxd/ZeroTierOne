@@ -22,11 +22,9 @@ ztcontroller = [
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
-temporal-sdk = { git = "https://github.com/temporalio/sdk-core", branch = "master", optional = true }
-temporal-client = { git = "https://github.com/temporalio/sdk-core", branch = "master", optional = true, features = [
-    "telemetry",
-] }
-temporal-sdk-core-protos = { git = "https://github.com/temporalio/sdk-core", branch = "master", optional = true }
+temporal-sdk = { git = "https://github.com/temporalio/sdk-core", rev = "4614dcb8f4ffd2cb244eb0a19d7485c896e3459e", optional = true }
+temporal-client = { git = "https://github.com/temporalio/sdk-core", rev = "4614dcb8f4ffd2cb244eb0a19d7485c896e3459e", features = ["telemetry"], optional = true }
+temporal-sdk-core-protos = { git = "https://github.com/temporalio/sdk-core", rev = "4614dcb8f4ffd2cb244eb0a19d7485c896e3459e", optional = true}
 tokio = { version = "1.43", features = [
     "full",
     "rt",
