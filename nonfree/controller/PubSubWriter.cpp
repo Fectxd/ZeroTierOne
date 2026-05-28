@@ -328,8 +328,6 @@ networkChangeFromJson(std::string controllerID, const nlohmann::json& oldNetwork
 pbmessages::MemberChange_Member* memberFromJson(const nlohmann::json& j)
 {
 	if (! j.is_object()) {
-		fprintf(stderr, "memberFromJson: JSON is not an object\n");
-		fprintf(stderr, "JSON: %s\n", j.dump().c_str());
 		return nullptr;
 	}
 
