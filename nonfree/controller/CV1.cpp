@@ -215,9 +215,7 @@ bool CV1::waitForReady()
 }
 
 bool CV1::isReady()
-{
-	return ((_ready == 2) && (_connected));
-}
+{ return ((_ready == 2) && (_connected)); }
 
 bool CV1::save(nlohmann::json& record, bool notifyListeners)
 {
@@ -355,9 +353,7 @@ void CV1::nodeIsOnline(
 }
 
 void CV1::nodeIsOnline(const uint64_t networkId, const uint64_t memberId, const InetAddress& physicalAddress)
-{
-	this->nodeIsOnline(networkId, memberId, physicalAddress, "unknown/unknown");
-}
+{ this->nodeIsOnline(networkId, memberId, physicalAddress, "unknown/unknown"); }
 
 AuthInfo CV1::getSSOAuthInfo(const nlohmann::json& member, const std::string& redirectURL)
 {
@@ -401,12 +397,11 @@ AuthInfo CV1::getSSOAuthInfo(const nlohmann::json& member, const std::string& re
 			networkId);
 		if (count[0].as<int>() == 1) {
 			// get active nonce, if exists.
-			pqxx::result r = w.exec_params(
-				"SELECT nonce FROM ztc_sso_expiry "
-				"WHERE network_id = $1 AND member_id = $2 "
-				"AND ((NOW() AT TIME ZONE 'UTC') <= authentication_expiry_time) AND ((NOW() AT TIME ZONE 'UTC') <= "
-				"nonce_expiration)",
-				networkId, memberId);
+			pqxx::result r = w.exec_params("SELECT nonce FROM ztc_sso_expiry "
+										   "WHERE network_id = $1 AND member_id = $2 "
+										   "AND ((NOW() AT TIME ZONE 'UTC') <= authentication_expiry_time) AND ((NOW() AT TIME ZONE 'UTC') <= nonce_expiration)",
+										   networkId,
+										   memberId);
 
 			if (r.size() == 0) {
 				// no active nonce.
@@ -453,17 +448,16 @@ AuthInfo CV1::getSSOAuthInfo(const nlohmann::json& member, const std::string& re
 				exit(7);
 			}
 
-			r = w.exec_params(
-				"SELECT oc.client_id, oc.authorization_endpoint, oc.issuer, oc.provider, oc.sso_impl_version "
-				"FROM ztc_network AS n "
-				"INNER JOIN ztc_org o "
-				"  ON o.owner_id = n.owner_id "
-				"LEFT OUTER JOIN ztc_network_oidc_config noc "
-				"  ON noc.network_id = n.id "
-				"LEFT OUTER JOIN ztc_oidc_config oc "
-				"  ON noc.client_id = oc.client_id AND oc.org_id = o.org_id "
-				"WHERE n.id = $1 AND n.sso_enabled = true",
-				networkId);
+			r = w.exec_params("SELECT oc.client_id, oc.authorization_endpoint, oc.issuer, oc.provider, oc.sso_impl_version "
+							  "FROM ztc_network AS n "
+							  "INNER JOIN ztc_org o "
+							  "  ON o.owner_id = n.owner_id "
+							  "LEFT OUTER JOIN ztc_network_oidc_config noc "
+							  "  ON noc.network_id = n.id "
+							  "LEFT OUTER JOIN ztc_oidc_config oc "
+							  "  ON noc.client_id = oc.client_id AND oc.org_id = o.org_id "
+							  "WHERE n.id = $1 AND n.sso_enabled = true",
+							  networkId);
 
 			std::string client_id = "";
 			std::string authorization_endpoint = "";
@@ -602,55 +596,54 @@ void CV1::initializeNetworks()
 		fprintf(stderr, "Load networks from psql...\n");
 		auto stream = pqxx::stream_from::query(w, qbuf);
 
-		std::tuple<
-			std::string	  // network ID
-			,
-			std::optional<int64_t>	 // creationTime
-			,
-			std::optional<std::string>	 // capabilities
-			,
-			std::optional<bool>	  // enableBroadcast
-			,
-			std::optional<uint64_t>	  // lastModified
-			,
-			std::optional<int>	 // mtu
-			,
-			std::optional<int>	 // multicastLimit
-			,
-			std::optional<std::string>	 // name
-			,
-			bool   // private
-			,
-			std::optional<int>	 // remoteTraceLevel
-			,
-			std::optional<std::string>	 // remoteTraceTarget
-			,
-			std::optional<uint64_t>	  // revision
-			,
-			std::optional<std::string>	 // rules
-			,
-			std::optional<std::string>	 // tags
-			,
-			std::optional<std::string>	 // v4AssignMode
-			,
-			std::optional<std::string>	 // v6AssignMode
-			,
-			std::optional<bool>	  // ssoEnabled
-			,
-			std::optional<std::string>	 // clientId
-			,
-			std::optional<std::string>	 // authorizationEndpoint
-			,
-			std::optional<std::string>	 // ssoProvider
-			,
-			std::optional<std::string>	 // domain
-			,
-			std::optional<std::string>	 // servers
-			,
-			std::string	  // assignmentPoolString
-			,
-			std::string	  // routeString
-			>
+		std::tuple<std::string	 // network ID
+				   ,
+				   std::optional<int64_t>	// creationTime
+				   ,
+				   std::optional<std::string>	// capabilities
+				   ,
+				   std::optional<bool>	 // enableBroadcast
+				   ,
+				   std::optional<uint64_t>	 // lastModified
+				   ,
+				   std::optional<int>	// mtu
+				   ,
+				   std::optional<int>	// multicastLimit
+				   ,
+				   std::optional<std::string>	// name
+				   ,
+				   bool	  // private
+				   ,
+				   std::optional<int>	// remoteTraceLevel
+				   ,
+				   std::optional<std::string>	// remoteTraceTarget
+				   ,
+				   std::optional<uint64_t>	 // revision
+				   ,
+				   std::optional<std::string>	// rules
+				   ,
+				   std::optional<std::string>	// tags
+				   ,
+				   std::optional<std::string>	// v4AssignMode
+				   ,
+				   std::optional<std::string>	// v6AssignMode
+				   ,
+				   std::optional<bool>	 // ssoEnabled
+				   ,
+				   std::optional<std::string>	// clientId
+				   ,
+				   std::optional<std::string>	// authorizationEndpoint
+				   ,
+				   std::optional<std::string>	// ssoProvider
+				   ,
+				   std::optional<std::string>	// domain
+				   ,
+				   std::optional<std::string>	// servers
+				   ,
+				   std::string	 // assignmentPoolString
+				   ,
+				   std::string	 // routeString
+				   >
 			row;
 
 		uint64_t count = 0;
@@ -925,49 +918,48 @@ void CV1::initializeMembers()
 		fprintf(stderr, "Load members from psql...\n");
 		auto stream = pqxx::stream_from::query(w, qbuf);
 
-		std::tuple<
-			std::string	  // memberId
-			,
-			std::string	  // memberId
-			,
-			std::optional<bool>	  // activeBridge
-			,
-			std::optional<bool>	  // authorized
-			,
-			std::optional<std::string>	 // capabilities
-			,
-			std::optional<uint64_t>	  // creationTime
-			,
-			std::optional<std::string>	 // identity
-			,
-			std::optional<uint64_t>	  // lastAuthorizedTime
-			,
-			std::optional<uint64_t>	  // lastDeauthorizedTime
-			,
-			std::optional<int>	 // remoteTraceLevel
-			,
-			std::optional<std::string>	 // remoteTraceTarget
-			,
-			std::optional<std::string>	 // tags
-			,
-			std::optional<int>	 // vMajor
-			,
-			std::optional<int>	 // vMinor
-			,
-			std::optional<int>	 // vRev
-			,
-			std::optional<int>	 // vProto
-			,
-			std::optional<bool>	  // noAutoAssignIps
-			,
-			std::optional<uint64_t>	  // revision
-			,
-			std::optional<bool>	  // ssoExempt
-			,
-			std::optional<uint64_t>	  // authenticationExpiryTime
-			,
-			std::string	  // assignedAddresses
-			>
+		std::tuple<std::string	 // memberId
+				   ,
+				   std::string	 // memberId
+				   ,
+				   std::optional<bool>	 // activeBridge
+				   ,
+				   std::optional<bool>	 // authorized
+				   ,
+				   std::optional<std::string>	// capabilities
+				   ,
+				   std::optional<uint64_t>	 // creationTime
+				   ,
+				   std::optional<std::string>	// identity
+				   ,
+				   std::optional<uint64_t>	 // lastAuthorizedTime
+				   ,
+				   std::optional<uint64_t>	 // lastDeauthorizedTime
+				   ,
+				   std::optional<int>	// remoteTraceLevel
+				   ,
+				   std::optional<std::string>	// remoteTraceTarget
+				   ,
+				   std::optional<std::string>	// tags
+				   ,
+				   std::optional<int>	// vMajor
+				   ,
+				   std::optional<int>	// vMinor
+				   ,
+				   std::optional<int>	// vRev
+				   ,
+				   std::optional<int>	// vProto
+				   ,
+				   std::optional<bool>	 // noAutoAssignIps
+				   ,
+				   std::optional<uint64_t>	 // revision
+				   ,
+				   std::optional<bool>	 // ssoExempt
+				   ,
+				   std::optional<uint64_t>	 // authenticationExpiryTime
+				   ,
+				   std::string	 // assignedAddresses
+				   >
 			row;
 
 		uint64_t count = 0;
@@ -1153,6 +1145,7 @@ void CV1::heartbeat()
 			std::string build = std::to_string(ZEROTIER_ONE_VERSION_BUILD);
 			std::string now = std::to_string(ts);
 			std::string host_port = std::to_string(_listenPort);
+			std::string notification_transport = (_rc != NULL) ? "redis" : "postgres";
 			std::string use_redis = (_rc != NULL) ? "true" : "false";
 			std::string redis_mem_status = (_redisMemberStatus) ? "true" : "false";
 
@@ -1561,16 +1554,15 @@ void CV1::commitThread()
 					w.commit();
 
 					if (_smee != NULL && isNewMember) {
-						pqxx::row row = w.exec_params1(
-							"SELECT "
-							"	count(h.hook_id) "
-							"FROM "
-							"	ztc_hook h "
-							"	INNER JOIN ztc_org o ON o.org_id = h.org_id "
-							"   INNER JOIN ztc_network n ON n.owner_id = o.owner_id "
-							" WHERE "
-							"n.id = $1 ",
-							networkId);
+						pqxx::row row = w.exec_params1("SELECT "
+													   "	count(h.hook_id) "
+													   "FROM "
+													   "	ztc_hook h "
+													   "	INNER JOIN ztc_org o ON o.org_id = h.org_id "
+													   "   INNER JOIN ztc_network n ON n.owner_id = o.owner_id "
+													   " WHERE "
+													   "n.id = $1 ",
+													   networkId);
 						int64_t hookCount = row[0].as<int64_t>();
 						if (hookCount > 0) {
 							notifyNewMember(networkId, memberId);
