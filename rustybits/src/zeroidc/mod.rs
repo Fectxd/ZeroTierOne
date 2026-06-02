@@ -287,9 +287,13 @@ impl ZeroIDC {
                                                             println!("Central post failed: {}", r.status());
                                                             println!("hit url: {}", r.url().as_str());
                                                             println!("Status: {}", r.status());
-                                                            if let Ok(body) = r.bytes() {
-                                                                if let Ok(body) = std::str::from_utf8(&body) {
-                                                                    println!("Body: {}", body);
+                                                            #[cfg(debug_assertions)]
+                                                            {
+                                                                // response body may contain tokens; debug only
+                                                                if let Ok(body) = r.bytes() {
+                                                                    if let Ok(body) = std::str::from_utf8(&body) {
+                                                                        println!("Body: {}", body);
+                                                                    }
                                                                 }
                                                             }
 
@@ -470,7 +474,10 @@ impl ZeroIDC {
         let res = (*local.lock().unwrap()).as_opt().map(|i| {
             if let Some(verifier) = i.pkce_verifier.take() {
                 let token_response = i.oidc_client.as_ref().map(|c| {
-                    println!("auth code: {}", code);
+                    #[cfg(debug_assertions)]
+                    {
+                        println!("auth code: {}", code);
+                    }
 
                     let r = c
                         .exchange_code(AuthorizationCode::new(code.to_string()))
@@ -480,10 +487,11 @@ impl ZeroIDC {
                     // validate the token hashes
                     match r {
                         Ok(res) => {
+                            println!("token exchange: received token response from IdP token endpoint");
                             let n = match i.nonce.clone() {
                                 Some(n) => n,
                                 None => {
-                                    println!("no nonce");
+                                    println!("token exchange FAILED: no nonce stored on the ZeroIDC client");
                                     i.running = false;
                                     return None;
                                 }
@@ -492,16 +500,27 @@ impl ZeroIDC {
                             let id = match res.id_token() {
                                 Some(t) => t,
                                 None => {
-                                    println!("no id token");
+                                    println!(
+                                        "token exchange FAILED: no id_token in IdP response \
+                                         (check that the 'openid' scope is requested and the client is OIDC, not OAuth-only)"
+                                    );
                                     i.running = false;
                                     return None;
                                 }
                             };
+                            #[cfg(debug_assertions)]
+                            {
+                                println!("token exchange: raw id_token = {}", id.to_string());
+                            }
 
                             let claims = match id.claims(&c.id_token_verifier(), &n) {
                                 Ok(c) => c,
-                                Err(_e) => {
-                                    println!("no claims");
+                                Err(e) => {
+                                    // Most common real-world failure: nonce mismatch, signature
+                                    // verification failure, issuer mismatch, audience/client-id
+                                    // mismatch, or expired token.
+                                    println!("token exchange FAILED: id_token claims verification error: {}", e);
+                                    println!("\tsource: {:?}", e.source());
                                     i.running = false;
                                     return None;
                                 }
@@ -509,34 +528,66 @@ impl ZeroIDC {
 
                             let signing_algo = match id.signing_alg() {
                                 Ok(s) => s,
-                                Err(_) => {
-                                    println!("no signing algorithm");
+                                Err(e) => {
+                                    println!("token exchange FAILED: could not determine id_token signing algorithm: {}", e);
                                     i.running = false;
                                     return None;
                                 }
                             };
+                            println!("token exchange: id_token claims verified, signing_alg={:?}", signing_algo);
 
                             if let Some(expected_hash) = claims.access_token_hash() {
                                 let actual_hash = match AccessTokenHash::from_token(res.access_token(), &signing_algo) {
                                     Ok(h) => h,
                                     Err(e) => {
-                                        println!("Error hashing access token: {}", e);
+                                        println!("token exchange FAILED: error hashing access token: {}", e);
                                         i.running = false;
                                         return None;
                                     }
                                 };
 
                                 if actual_hash != *expected_hash {
-                                    println!("token hash error");
+                                    println!(
+                                        "token exchange FAILED: access token hash mismatch (at_hash) — expected {:?}, got {:?}",
+                                        expected_hash, actual_hash
+                                    );
                                     i.running = false;
                                     return None;
                                 }
+                            } else {
+                                println!("token exchange: no at_hash claim present, skipping access-token hash check");
                             }
                             Some(res)
                         }
                         Err(e) => {
-                            println!("token response error: {:?}", e.to_string());
-                            println!("\t {:?}", e.source());
+                            // This is the IdP token endpoint rejecting the code exchange itself:
+                            // invalid_grant (expired/reused code), redirect_uri/client_secret/PKCE
+                            // mismatch, or a network/TLS failure reaching the token endpoint.
+                            println!("token exchange FAILED: error requesting tokens from IdP token endpoint: {}", e);
+                            match &e {
+                                openidconnect::RequestTokenError::ServerResponse(resp) => {
+                                    // OAuth error body from the IdP token endpoint, e.g.
+                                    // invalid_grant / invalid_client / unauthorized_client /
+                                    // invalid_request, optionally with an error_description.
+                                    println!("\tIdP OAuth error: {}", resp);
+                                    println!("\tIdP OAuth error (full): {:?}", resp);
+                                }
+                                openidconnect::RequestTokenError::Request(req) => {
+                                    println!("\trequest/transport error reaching IdP: {:?}", req);
+                                }
+                                openidconnect::RequestTokenError::Parse(parse_err, _raw) => {
+                                    println!("\tfailed to parse IdP response: {}", parse_err);
+                                    #[cfg(debug_assertions)]
+                                    {
+                                        // raw body may contain tokens on a 200 misparse; debug only
+                                        println!("\traw IdP response body: {}", String::from_utf8_lossy(_raw));
+                                    }
+                                }
+                                other => {
+                                    println!("\tother token error: {:?}", other);
+                                }
+                            }
+                            println!("\tsource: {:?}", e.source());
                             i.running = false;
                             None
                         }
@@ -560,6 +611,7 @@ impl ZeroIDC {
                     if split.len() == 2 {
                         let params = [("id_token", id_token.to_string()), ("state", split[0].to_string())];
                         let client = reqwest::blocking::Client::new();
+                        println!("token exchange: POSTing id_token + state to central auth endpoint {}", i.auth_endpoint);
                         let res = client.post(i.auth_endpoint.clone()).form(&params).send();
 
                         match res {
@@ -642,6 +694,17 @@ impl ZeroIDC {
                     }
                 } else {
                     i.running = false;
+                    match token_response {
+                        None => println!(
+                            "token exchange FAILED: no OIDC client configured on the ZeroIDC instance \
+                             (discovery never produced a client) -> 'invalid token response'"
+                        ),
+                        Some(None) => println!(
+                            "token exchange FAILED: token exchange/validation closure returned None \
+                             (see the specific 'token exchange FAILED' line above) -> 'invalid token response'"
+                        ),
+                        Some(Some(_)) => unreachable!(),
+                    }
                     Err(SSOExchangeError::new("invalid token response".to_string()))
                 }
             } else {
