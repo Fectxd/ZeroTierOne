@@ -3,6 +3,7 @@
 
 #include "Redis.hpp"
 
+#include <map>
 #include <string>
 
 namespace ZeroTier {
@@ -28,6 +29,8 @@ struct ControllerConfig {
 	std::string listenMode;
 	std::string statusMode;
 	std::string assignedCentralVersion;
+	// Central SSO redirect URLs keyed by frontend ("cv1" or "cv2")
+	std::map<std::string, std::string> ssoRedirectURLs;
 	RedisConfig* redisConfig;
 	PubSubConfig* pubSubConfig;
 	BigTableConfig* bigTableConfig;

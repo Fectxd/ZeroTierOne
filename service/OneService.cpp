@@ -1836,6 +1836,37 @@ class OneServiceImpl : public OneService {
 
 			_controllerConfig.ssoEnabled = OSUtils::jsonBool(cc["ssoEnabled"], false);
 
+			// Central SSO redirect URLs keyed by frontend. Networks are routed to the
+			// SSO endpoint of the Central version ("cv1" or "cv2") they belong to.
+			if (cc["ssoRedirectURLs"].is_object()) {
+				json& urls = cc["ssoRedirectURLs"];
+				for (json::iterator i(urls.begin()); i != urls.end(); ++i) {
+					if ((i.key() != "cv1") && (i.key() != "cv2")) {
+						fprintf(stderr, "ERROR: ssoRedirectURLs keys must be one of 'cv1' or 'cv2'" ZT_EOL_S);
+						exit(1);
+					}
+					_controllerConfig.ssoRedirectURLs[i.key()] = OSUtils::jsonString(i.value(), "");
+				}
+			}
+			if (_controllerConfig.ssoEnabled) {
+				const std::string& av = _controllerConfig.assignedCentralVersion;
+				const char* required[2] = { "cv1", "cv2" };
+				for (int i = 0; i < 2; ++i) {
+					if ((av != "all") && (av != required[i])) {
+						continue;
+					}
+					auto it = _controllerConfig.ssoRedirectURLs.find(required[i]);
+					if ((it == _controllerConfig.ssoRedirectURLs.end()) || it->second.empty()) {
+						fprintf(
+							stderr,
+							"ERROR: controller.ssoRedirectURLs must contain a non-empty '%s' entry when ssoEnabled "
+							"is true" ZT_EOL_S,
+							required[i]);
+						exit(1);
+					}
+				}
+			}
+
 			// redis settings
 			if (cc["redis"].is_object() && _rc == NULL) {
 				json& redis = cc["redis"];

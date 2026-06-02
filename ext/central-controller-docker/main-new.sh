@@ -112,6 +112,47 @@ if [ "$ZT_USE_PUBSUB" == "true" ]; then
 "
 fi
 
+# Backwards compatibility: if the per-frontend URLs aren't set but the legacy
+# ZT_SSO_REDIRECT_URL and ZT_ASSIGNED_CENTRAL_VERSION are both populated, map
+# the legacy URL into the new format keyed by the assigned Central version.
+if [ -z "$ZT_SSO_REDIRECT_URL_CV1" ] && [ -z "$ZT_SSO_REDIRECT_URL_CV2" ]; then
+    if [ -n "$ZT_SSO_REDIRECT_URL" ] && [ -n "$ZT_ASSIGNED_CENTRAL_VERSION" ]; then
+        case "$ZT_ASSIGNED_CENTRAL_VERSION" in
+            cv1)
+                ZT_SSO_REDIRECT_URL_CV1="$ZT_SSO_REDIRECT_URL"
+                ;;
+            cv2)
+                ZT_SSO_REDIRECT_URL_CV2="$ZT_SSO_REDIRECT_URL"
+                ;;
+            all)
+                echo '*** FAILED: controllers assigned to "all" must define ZT_SSO_REDIRECT_URL_CV1 and ZT_SSO_REDIRECT_URL_CV2; the legacy ZT_SSO_REDIRECT_URL cannot serve both Central versions'
+                exit 1
+                ;;
+        esac
+    fi
+fi
+
+# Per-frontend Central SSO redirect URLs. SSO-enabled networks are routed to the
+# SSO endpoint of the Central version ("cv1" or "cv2") they belong to.
+SSO_REDIRECT_URLS_CONF=""
+if [ -n "$ZT_SSO_REDIRECT_URL_CV1" ] || [ -n "$ZT_SSO_REDIRECT_URL_CV2" ]; then
+    SSO_REDIRECT_URLS=""
+    if [ -n "$ZT_SSO_REDIRECT_URL_CV1" ]; then
+        SSO_REDIRECT_URLS="\"cv1\": \"${ZT_SSO_REDIRECT_URL_CV1}\""
+    fi
+    if [ -n "$ZT_SSO_REDIRECT_URL_CV2" ]; then
+        if [ -n "$SSO_REDIRECT_URLS" ]; then
+            SSO_REDIRECT_URLS="${SSO_REDIRECT_URLS},
+        "
+        fi
+        SSO_REDIRECT_URLS="${SSO_REDIRECT_URLS}\"cv2\": \"${ZT_SSO_REDIRECT_URL_CV2}\""
+    fi
+    SSO_REDIRECT_URLS_CONF=", \"ssoRedirectURLs\": {
+        ${SSO_REDIRECT_URLS}
+    }
+"
+fi
+
 echo "{
     \"settings\": {
         \"controllerDbPath\": \"postgres:host=${ZT_DB_HOST} port=${ZT_DB_PORT} dbname=${ZT_DB_NAME} user=${ZT_DB_USER} password=${ZT_DB_PASSWORD} application_name=${APP_NAME} sslmode=prefer sslcert=${DB_CLIENT_CERT} sslkey=${DB_CLIENT_KEY} sslrootcert=${DB_SERVER_CA}\",
@@ -135,6 +176,7 @@ echo "{
         \"statusMode\": \"${ZT_STATUS_MODE:-pgsql}\",
         \"assignedCentralVersion\": \"${ZT_ASSIGNED_CENTRAL_VERSION:-all}\",
         \"ssoEnabled\": ${ZT_SSO_ENABLED:-false}
+        ${SSO_REDIRECT_URLS_CONF}
         ${REDIS}
         ${BIGTABLE_CONF}
         ${PUBSUB_CONF}

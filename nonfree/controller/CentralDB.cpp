@@ -461,9 +461,11 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 					   pqxx::params { memberId, networkId })
 					.one_row();
 			if (count[0].as<int>() == 1) {
-				// Query the network's frontend while the transaction is guaranteed open
+				// Query the network's frontend while the transaction is guaranteed open.
+				// It selects which Central's SSO redirect URL the member is sent to and
+				// tags the nonce publish for PubSub routing.
 				std::string frontend;
-				if (_ssoNonceWriter) {
+				{
 					pqxx::result fr =
 						w.exec("SELECT frontend FROM networks_ctl WHERE id = $1", pqxx::params { networkId });
 					if (fr.size() == 1) {
@@ -559,8 +561,22 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 
 				info.version = sso_version;
 
+				// Every SSO-enabled network must resolve to the redirect URL configured
+				// for the Central frontend ("cv1" or "cv2") it belongs to.
+				std::string ssoRedirectURL;
+				auto fu = _cc->ssoRedirectURLs.find(frontend);
+				if (fu != _cc->ssoRedirectURLs.end()) {
+					ssoRedirectURL = fu->second;
+				}
+
+				if (ssoRedirectURL.empty()) {
+					span->SetStatus(opentelemetry::trace::StatusCode::kError,
+									"no SSO redirect URL configured for frontend");
+					fprintf(stderr, "ERROR: no SSO redirect URL configured for frontend '%s' of network %s\n",
+							frontend.c_str(), networkId.c_str());
+				}
 				// no catch all else because we don't actually care if no records exist here. just continue as normal.
-				if ((! client_id.empty()) && (! authorization_endpoint.empty())) {
+				else if ((! client_id.empty()) && (! authorization_endpoint.empty())) {
 					uint8_t state[48];
 					HMACSHA384(_ssoPsk, nonceBytes, sizeof(nonceBytes), state);
 					char state_hex[256];
@@ -572,8 +588,8 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 							url, sizeof(authenticationURL),
 							"%s?response_type=id_token&response_mode=form_post&scope=openid+email+profile&redirect_uri="
 							"%s&nonce=%s&state=%s&client_id=%s",
-							authorization_endpoint.c_str(), url_encode(redirectURL).c_str(), nonce.c_str(), state_hex,
-							client_id.c_str());
+							authorization_endpoint.c_str(), url_encode(ssoRedirectURL).c_str(), nonce.c_str(),
+							state_hex, client_id.c_str());
 						info.authenticationURL = std::string(url);
 					}
 					else if (info.version == 1) {
@@ -582,7 +598,7 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 						info.ssoProvider = provider;
 						info.ssoNonce = nonce;
 						info.ssoState = std::string(state_hex) + "_" + networkId;
-						info.centralAuthURL = redirectURL;
+						info.centralAuthURL = ssoRedirectURL;
 #ifdef ZT_DEBUG
 						fprintf(
 							stderr,
