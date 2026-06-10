@@ -39,6 +39,7 @@
 #include <libpq-fe.h>
 #include <optional>
 #include <pqxx/pqxx>
+#include <set>
 #include <sstream>
 
 // #define REDIS_TRACE 1
@@ -1567,9 +1568,51 @@ void CentralDB::onlineNotificationThread()
 					lastOnline.swap(_lastOnline);
 				}
 
+				// Phase 1: a single batched query to find which (network, member) pairs the
+				// controller actually has in the DB.  The IDs come from %.16llx / %.10llx, so
+				// they're pure hex -- safe to build the array literals directly with no escaping.
+				// The two arrays are position-aligned and zipped back into rows by unnest().
+				std::set<std::pair<std::string, std::string> > existing;
+				if (! lastOnline.empty()) {
+					std::string nwArray = "{";
+					std::string memArray = "{";
+					bool first = true;
+					for (auto i = lastOnline.begin(); i != lastOnline.end(); ++i) {
+						char nwidTmp[64];
+						char memTmp[64];
+						OSUtils::ztsnprintf(nwidTmp, sizeof(nwidTmp), "%.16llx", i->first.first);
+						OSUtils::ztsnprintf(memTmp, sizeof(memTmp), "%.10llx", i->first.second);
+						if (! first) {
+							nwArray += ',';
+							memArray += ',';
+						}
+						first = false;
+						nwArray += nwidTmp;
+						memArray += memTmp;
+					}
+					nwArray += "}";
+					memArray += "}";
+
+					c = _pool->borrow();
+					pqxx::work w(*c->c);
+					pqxx::result r = w.exec(
+						"SELECT nm.network_id, nm.device_id "
+						"FROM network_memberships_ctl nm "
+						"JOIN unnest($1::text[], $2::text[]) AS v(network_id, device_id) "
+						"  ON nm.network_id = v.network_id AND nm.device_id = v.device_id",
+						pqxx::params { nwArray, memArray });
+					w.commit();	  // Postgres txn closes here, before any BigTable I/O
+					_pool->unborrow(c);
+					c.reset();
+
+					for (const auto& row : r) {
+						existing.emplace(row[0].as<std::string>(), row[1].as<std::string>());
+					}
+				}
+
+				// Phase 2: build the status updates with NO Postgres transaction open, so the
+				// connection isn't pinned (idle in transaction) during the BigTable writes.
 				uint64_t writtenCount = 0;
-				c = _pool->borrow();
-				pqxx::work w(*c->c);
 				for (auto i = lastOnline.begin(); i != lastOnline.end(); ++i) {
 					uint64_t nwid_i = i->first.first;
 					char nwidTmp[64];
@@ -1577,29 +1620,18 @@ void CentralDB::onlineNotificationThread()
 					char ipTmp[64];
 					OSUtils::ztsnprintf(nwidTmp, sizeof(nwidTmp), "%.16llx", nwid_i);
 					OSUtils::ztsnprintf(memTmp, sizeof(memTmp), "%.10llx", i->first.second);
-					nlohmann::json network, member;
-
-					if (! get(nwid_i, network, i->first.second, member)) {
-						continue;	// skip non existent networks/members
-					}
 
 					std::string networkId(nwidTmp);
 					std::string memberId(memTmp);
 
-					try {
-						// check if the member exists first.
-						//
-						// exec_params1 will throw pqxx::unexpected_rows if not exactly one row is returned.  If that's
-						// the case, skip this record and move on.
-						pqxx::row r =
-							w.exec("SELECT device_id, network_id FROM network_memberships_ctl WHERE network_id = "
-								   "$1 AND device_id "
-								   "= $2",
-								   pqxx::params { networkId, memberId })
-								.one_row();
-					}
-					catch (pqxx::unexpected_rows& e) {
+					// skip devices the controller doesn't have in the DB
+					if (existing.find(std::make_pair(networkId, memberId)) == existing.end()) {
 						continue;
+					}
+
+					nlohmann::json network, member;
+					if (! get(nwid_i, network, i->first.second, member)) {
+						continue;	// skip non existent networks/members
 					}
 
 					int64_t ts = i->second.lastSeen;
@@ -1637,7 +1669,6 @@ void CentralDB::onlineNotificationThread()
 				fprintf(stderr, "onlineNotificationThread: %llu entries in lastOnline, %llu passed to status writer\n",
 						(unsigned long long)lastOnline.size(), (unsigned long long)writtenCount);
 				_statusWriter->writePending();
-				w.commit();
 			}
 			catch (std::exception& e) {
 				fprintf(stderr, "%s: error in onlinenotification thread: %s\n", _myAddressStr.c_str(), e.what());

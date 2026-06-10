@@ -1,8 +1,10 @@
 #include "BigTableStatusWriter.hpp"
 
+#include "../../osdep/OSUtils.hpp"
 #include "ControllerConfig.hpp"
 #include "PubSubWriter.hpp"
 
+#include <functional>
 #include <google/cloud/bigtable/mutations.h>
 #include <google/cloud/bigtable/row.h>
 #include <google/cloud/bigtable/table.h>
@@ -22,6 +24,15 @@ const std::string ipv4Column = "ipv4";
 const std::string ipv6Column = "ipv6";
 const std::string lastSeenColumn = "last_seen";
 
+// node_info changes rarely, so we skip rewriting an unchanged row.  As a safety
+// net we still rewrite it at most this often, so the cell can never age out from
+// under us if the GC policy is ever changed to union (OR) semantics.
+static const int64_t kNodeInfoRefreshMs = 6LL * 24 * 60 * 60 * 1000;	// 6 days
+// Drop cache entries for rows we haven't seen within this window (node assumed
+// offline), so the cache tracks the active set rather than every node ever seen.
+static const int64_t kCacheEntryTtlMs = 24LL * 60 * 60 * 1000;	// 24 hours
+static const int64_t kEvictionIntervalMs = 60LL * 60 * 1000;	// sweep at most hourly
+
 BigTableStatusWriter::BigTableStatusWriter(
 	const std::string& project_id,
 	const std::string& instance_id,
@@ -30,6 +41,7 @@ BigTableStatusWriter::BigTableStatusWriter(
 	, _instance_id(instance_id)
 	, _table_id(table_id)
 	, _table(nullptr)
+	, _lastEvictionMs(0)
 {
 	_table = new cbt::Table(cbt::MakeDataConnection(), cbt::TableResource(_project_id, _instance_id, _table_id));
 	fprintf(
@@ -89,39 +101,40 @@ void BigTableStatusWriter::writePending()
 		return;
 	}
 
+	const int64_t nowMs = OSUtils::now();
+	const std::hash<std::string> hasher;
+
 	cbt::BulkMutation bulk;
+	// Row-key hash for each mutation, aligned with bulk's indices, so a failed
+	// mutation can invalidate its cache entry (FailedMutation::original_index()).
+	std::vector<uint64_t> bulkRowHashes;
+	bulkRowHashes.reserve(toWrite.size());
+
 	for (const auto& entry : toWrite) {
 		std::string row_key = entry.network_id + "#" + entry.node_id;
-
-		// read the latest values from BigTable for this row key
-		std::map<std::string, std::string> latest_values;
-		try {
-			auto row = _table->ReadRow(row_key, cbt::Filter::Latest(1));
-			if (row->first) {
-				for (const auto& cell : row->second.cells()) {
-					if (cell.family_name() == nodeInfoColumnFamily) {
-						latest_values[cell.column_qualifier()] = cell.value();
-					}
-				}
-			}
-		}
-		catch (const std::exception& e) {
-			fprintf(stderr, "Exception reading from BigTable: %s\n", e.what());
-		}
+		const uint64_t keyHash = hasher(row_key);
 
 		cbt::SingleRowMutation m(row_key);
 
-		// only update if value has changed
-		if (latest_values[osColumn] != entry.os) {
+		// node_info (os/arch/version) changes rarely.  Write it only when our
+		// last-written value for this row differs, or hasn't been refreshed in a
+		// while -- no read RPC, the controller is the sole writer of node_info.
+		const uint64_t valueHash = hasher(entry.os + "|" + entry.arch + "|" + entry.version);
+		auto it = _lastNodeInfo.find(keyHash);
+		const bool writeNodeInfo = (it == _lastNodeInfo.end()) || (it->second.valueHash != valueHash)
+			|| ((nowMs - it->second.lastWrittenMs) > kNodeInfoRefreshMs);
+
+		if (writeNodeInfo) {
 			m.emplace_back(cbt::SetCell(nodeInfoColumnFamily, osColumn, entry.os));
-		}
-		if (latest_values[archColumn] != entry.arch) {
 			m.emplace_back(cbt::SetCell(nodeInfoColumnFamily, archColumn, entry.arch));
-		}
-		if (latest_values[versionColumn] != entry.version) {
 			m.emplace_back(cbt::SetCell(nodeInfoColumnFamily, versionColumn, entry.version));
+			_lastNodeInfo[keyHash] = NodeInfoState { valueHash, nowMs, nowMs };
+		}
+		else {
+			it->second.lastSeenMs = nowMs;
 		}
 
+		// check_in (ip + last_seen) changes every cycle, so it's always written.
 		char buf[64] = { 0 };
 		std::string addressStr = entry.address.toString(buf);
 		if (entry.address.ss_family == AF_INET) {
@@ -132,7 +145,9 @@ void BigTableStatusWriter::writePending()
 		}
 		int64_t ts = entry.last_seen;
 		m.emplace_back(cbt::SetCell(checkInColumnFamily, lastSeenColumn, std::move(ts)));
+
 		bulk.emplace_back(m);
+		bulkRowHashes.push_back(keyHash);
 	}
 
 	fprintf(stderr, "Applying %zu mutations to BigTable\n", bulk.size());
@@ -141,15 +156,39 @@ void BigTableStatusWriter::writePending()
 		std::vector<cbt::FailedMutation> failures = _table->BulkApply(std::move(bulk));
 		fprintf(stderr, "BigTable write completed with %zu failures\n", failures.size());
 		for (auto const& r : failures) {
-			// Handle error (log it, retry, etc.)
 			std::cerr << "Error writing to BigTable: " << r.status() << "\n";
+			// Drop the cache entry for any failed row so its node_info is rewritten
+			// next cycle rather than being assumed durably written.
+			const int idx = r.original_index();
+			if (idx >= 0 && static_cast<size_t>(idx) < bulkRowHashes.size()) {
+				_lastNodeInfo.erase(bulkRowHashes[idx]);
+			}
 		}
 	}
 	catch (const std::exception& e) {
 		fprintf(stderr, "Exception writing to BigTable: %s\n", e.what());
 		span->SetAttribute("error", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
+		// The batch's outcome is unknown, so clear the rows it covered to force a
+		// node_info rewrite next cycle rather than trusting an optimistic update.
+		for (uint64_t keyHash : bulkRowHashes) {
+			_lastNodeInfo.erase(keyHash);
+		}
 		return;
+	}
+
+	// Periodically evict rows we haven't seen lately so the cache tracks the
+	// currently-active node set rather than growing for the process's lifetime.
+	if ((nowMs - _lastEvictionMs) > kEvictionIntervalMs) {
+		for (auto it = _lastNodeInfo.begin(); it != _lastNodeInfo.end();) {
+			if ((nowMs - it->second.lastSeenMs) > kCacheEntryTtlMs) {
+				it = _lastNodeInfo.erase(it);
+			}
+			else {
+				++it;
+			}
+		}
+		_lastEvictionMs = nowMs;
 	}
 }
 
