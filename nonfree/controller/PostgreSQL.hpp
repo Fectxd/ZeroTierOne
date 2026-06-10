@@ -28,6 +28,14 @@ class PostgresConnection : public Connection {
 	{
 	}
 
+	// A pqxx::connection whose backend has gone away (server restart, AlloyDB
+	// maintenance, network drop) reports is_open() == false and cannot be reused
+	// -- pqxx 7 has no reconnect.  Returning false here makes the pool drop it.
+	virtual bool alive() const override
+	{
+		return c && c->is_open();
+	}
+
 	std::shared_ptr<pqxx::connection> c;
 	int a;
 };

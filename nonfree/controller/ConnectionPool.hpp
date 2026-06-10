@@ -30,6 +30,16 @@ struct ConnectionUnavailable : std::exception {
 class Connection {
   public:
 	virtual ~Connection() {};
+
+	/**
+	 * @return false if this connection is known to be dead/unusable, so the pool
+	 * can discard and replace it rather than handing it out again.  Defaults to
+	 * true for connection types that don't implement a health check.
+	 */
+	virtual bool alive() const
+	{
+		return true;
+	}
 };
 
 class ConnectionFactory {
@@ -84,6 +94,20 @@ template <class T> class ConnectionPool {
 		auto scope = tracer->WithActiveSpan(span);
 
 		std::unique_lock<std::mutex> l(m_poolMutex);
+
+		// Discard any dead connections sitting idle in the pool so we never hand
+		// one out.  This forces the size checks below to replenish with fresh
+		// connections, which is what lets the pool recover after the DB server
+		// drops every connection (e.g. an AlloyDB maintenance restart).
+		for (auto it = m_pool.begin(); it != m_pool.end();) {
+			if (! (*it)->alive()) {
+				it = m_pool.erase(it);
+				Metrics::pool_avail--;
+			}
+			else {
+				++it;
+			}
+		}
 
 		while ((m_pool.size() + m_borrowed.size()) < m_minPoolSize) {
 			std::shared_ptr<Connection> conn = m_factory->create();
@@ -160,7 +184,10 @@ template <class T> class ConnectionPool {
 		std::unique_lock<std::mutex> lock(m_poolMutex);
 		m_borrowed.erase(conn);
 		Metrics::pool_in_use--;
-		if ((m_pool.size() + m_borrowed.size()) < m_maxPoolSize) {
+		// Only return live connections to the pool.  A dead one (e.g. the caller
+		// hit an error because the DB dropped it) is let go here so its slot is
+		// replaced with a fresh connection on the next borrow().
+		if (conn->alive() && (m_pool.size() + m_borrowed.size()) < m_maxPoolSize) {
 			Metrics::pool_avail++;
 			m_pool.push_back(conn);
 		}
