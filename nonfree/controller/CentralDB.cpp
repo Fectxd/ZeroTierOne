@@ -1622,7 +1622,6 @@ void CentralDB::onlineNotificationThread()
 			auto span = tracer->StartSpan("CentralDB::onlineNotificationThread");
 			auto scope = tracer->WithActiveSpan(span);
 
-			std::shared_ptr<PostgresConnection> c;
 			try {
 				std::unordered_map<std::pair<uint64_t, uint64_t>, NodeOnlineRecord, _PairHasher> lastOnline;
 				{
@@ -1630,50 +1629,11 @@ void CentralDB::onlineNotificationThread()
 					lastOnline.swap(_lastOnline);
 				}
 
-				// Phase 1: a single batched query to find which (network, member) pairs the
-				// controller actually has in the DB.  The IDs come from %.16llx / %.10llx, so
-				// they're pure hex -- safe to build the array literals directly with no escaping.
-				// The two arrays are position-aligned and zipped back into rows by unnest().
-				std::set<std::pair<std::string, std::string> > existing;
-				if (! lastOnline.empty()) {
-					std::string nwArray = "{";
-					std::string memArray = "{";
-					bool first = true;
-					for (auto i = lastOnline.begin(); i != lastOnline.end(); ++i) {
-						char nwidTmp[64];
-						char memTmp[64];
-						OSUtils::ztsnprintf(nwidTmp, sizeof(nwidTmp), "%.16llx", i->first.first);
-						OSUtils::ztsnprintf(memTmp, sizeof(memTmp), "%.10llx", i->first.second);
-						if (! first) {
-							nwArray += ',';
-							memArray += ',';
-						}
-						first = false;
-						nwArray += nwidTmp;
-						memArray += memTmp;
-					}
-					nwArray += "}";
-					memArray += "}";
-
-					c = _pool->borrow();
-					pqxx::work w(*c->c);
-					pqxx::result r = w.exec(
-						"SELECT nm.network_id, nm.device_id "
-						"FROM network_memberships_ctl nm "
-						"JOIN unnest($1::text[], $2::text[]) AS v(network_id, device_id) "
-						"  ON nm.network_id = v.network_id AND nm.device_id = v.device_id",
-						pqxx::params { nwArray, memArray });
-					w.commit();	  // Postgres txn closes here, before any BigTable I/O
-					_pool->unborrow(c);
-					c.reset();
-
-					for (const auto& row : r) {
-						existing.emplace(row[0].as<std::string>(), row[1].as<std::string>());
-					}
-				}
-
-				// Phase 2: build the status updates with NO Postgres transaction open, so the
-				// connection isn't pinned (idle in transaction) during the BigTable writes.
+				// Build status updates straight from the controller's in-memory view.  get()
+				// below is an authoritative membership check -- it returns false for any
+				// network/member this controller doesn't hold -- so there's no need to query
+				// Postgres to confirm existence.  This also keeps status flowing to the status
+				// writer even while the database is unavailable.
 				uint64_t writtenCount = 0;
 				for (auto i = lastOnline.begin(); i != lastOnline.end(); ++i) {
 					uint64_t nwid_i = i->first.first;
@@ -1685,11 +1645,6 @@ void CentralDB::onlineNotificationThread()
 
 					std::string networkId(nwidTmp);
 					std::string memberId(memTmp);
-
-					// skip devices the controller doesn't have in the DB
-					if (existing.find(std::make_pair(networkId, memberId)) == existing.end()) {
-						continue;
-					}
 
 					nlohmann::json network, member;
 					if (! get(nwid_i, network, i->first.second, member)) {
@@ -1734,9 +1689,6 @@ void CentralDB::onlineNotificationThread()
 			}
 			catch (std::exception& e) {
 				fprintf(stderr, "%s: error in onlinenotification thread: %s\n", _myAddressStr.c_str(), e.what());
-			}
-			if (c) {
-				_pool->unborrow(c);
 			}
 		}
 
