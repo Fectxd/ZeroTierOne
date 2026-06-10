@@ -1166,11 +1166,24 @@ void CentralDB::commitThread()
 			auto span = tracer->StartSpan("CentralDB::commitThread");
 			auto scope = tracer->WithActiveSpan(span);
 
-			fprintf(stderr, "commitThread tick\n");
 			if (! qitem.jsonData.is_object()) {
-				fprintf(stderr, "not an object\n");
+				fprintf(stderr, "commitThread tick: skipping non-object queue item\n");
 				continue;
 			}
+
+			// Describe the operation this tick is performing.  nwid/id cover every
+			// objtype: member/_delete_member set both; network/_delete_network use id
+			// as the network id.
+			const std::string tickObjtype = OSUtils::jsonString(qitem.jsonData["objtype"], "?");
+			const std::string tickNwid = OSUtils::jsonString(qitem.jsonData["nwid"], "");
+			const std::string tickId = OSUtils::jsonString(qitem.jsonData["id"], "");
+			span->SetAttribute("objtype", tickObjtype);
+			span->SetAttribute("nwid", tickNwid);
+			span->SetAttribute("id", tickId);
+			span->SetAttribute("retry", qitem.retryCount);
+			fprintf(stderr, "%s commitThread tick: objtype=%s nwid=%s id=%s retry=%d notify=%d\n",
+					_myAddressStr.c_str(), tickObjtype.c_str(), tickNwid.empty() ? "-" : tickNwid.c_str(),
+					tickId.empty() ? "-" : tickId.c_str(), qitem.retryCount, qitem.notifyListeners ? 1 : 0);
 
 			bool commitFailed = false;
 
