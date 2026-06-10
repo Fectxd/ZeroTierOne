@@ -1113,6 +1113,40 @@ void CentralDB::heartbeat()
 	fprintf(stderr, "Exited heartbeat thread\n");
 }
 
+void CentralDB::_requeueFailedCommit(_queueItem& qitem)
+{
+	// The PubSub message that produced this change was already acked when it was
+	// enqueued, so a failed DB write would otherwise be lost.  Re-queue it (with
+	// capped backoff) so transient failures -- e.g. an AlloyDB maintenance restart
+	// -- are retried rather than dropped.  A genuinely poison item is dropped after
+	// a bounded number of attempts so it can't spin a commit thread forever.
+	if (_run != 1) {
+		// shutting down -- don't requeue
+		return;
+	}
+	if (qitem.retryCount >= ZT_CENTRAL_CONTROLLER_MAX_COMMIT_RETRIES) {
+		fprintf(stderr, "%s ERROR: dropping %s change after %d failed commit attempts\n", _myAddressStr.c_str(),
+				OSUtils::jsonString(qitem.jsonData["objtype"], "?").c_str(), qitem.retryCount);
+		return;
+	}
+	++qitem.retryCount;
+
+	// Capped linear backoff, slept in small chunks so shutdown stays responsive.
+	int64_t backoffMs = (int64_t)qitem.retryCount * 500LL;
+	if (backoffMs > 10000LL) {
+		backoffMs = 10000LL;
+	}
+	for (int64_t slept = 0; slept < backoffMs && _run == 1;) {
+		int64_t chunk = (backoffMs - slept) < 250LL ? (backoffMs - slept) : 250LL;
+		std::this_thread::sleep_for(std::chrono::milliseconds(chunk));
+		slept += chunk;
+	}
+	if (_run != 1) {
+		return;
+	}
+	_commitQueue.post(qitem);
+}
+
 void CentralDB::commitThread()
 {
 	fprintf(stderr, "%s: commitThread start\n", _myAddressStr.c_str());
@@ -1138,17 +1172,21 @@ void CentralDB::commitThread()
 				continue;
 			}
 
+			bool commitFailed = false;
+
 			std::shared_ptr<PostgresConnection> c;
 			try {
 				c = _pool->borrow();
 			}
 			catch (std::exception& e) {
 				fprintf(stderr, "ERROR: %s\n", e.what());
+				_requeueFailedCommit(qitem);
 				continue;
 			}
 
 			if (! c) {
 				fprintf(stderr, "Error getting database connection\n");
+				_requeueFailedCommit(qitem);
 				continue;
 			}
 
@@ -1331,6 +1369,7 @@ void CentralDB::commitThread()
 						fprintf(stderr, "%s ERROR: Error updating member %s-%s: %s\n", _myAddressStr.c_str(),
 								networkId.c_str(), memberId.c_str(), e.what());
 						mspan->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
+						commitFailed = true;
 					}
 				}
 				else if (objtype == "network") {
@@ -1419,6 +1458,7 @@ void CentralDB::commitThread()
 					catch (std::exception& e) {
 						nspan->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 						fprintf(stderr, "%s ERROR: Error updating network: %s\n", _myAddressStr.c_str(), e.what());
+						commitFailed = true;
 					}
 					if (_listenerMode == LISTENER_MODE_REDIS && _redisMemberStatus) {
 						try {
@@ -1460,6 +1500,7 @@ void CentralDB::commitThread()
 					catch (std::exception& e) {
 						dspan->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 						fprintf(stderr, "%s ERROR: Error deleting network: %s\n", _myAddressStr.c_str(), e.what());
+						commitFailed = true;
 					}
 					if (_listenerMode == LISTENER_MODE_REDIS && _redisMemberStatus) {
 						try {
@@ -1512,6 +1553,7 @@ void CentralDB::commitThread()
 					catch (std::exception& e) {
 						mspan->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 						fprintf(stderr, "%s ERROR: Error deleting member: %s\n", _myAddressStr.c_str(), e.what());
+						commitFailed = true;
 					}
 					if (_listenerMode == LISTENER_MODE_REDIS && _redisMemberStatus) {
 						try {
@@ -1541,9 +1583,16 @@ void CentralDB::commitThread()
 			catch (std::exception& e) {
 				span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 				fprintf(stderr, "%s ERROR: Error getting objtype: %s\n", _myAddressStr.c_str(), e.what());
+				commitFailed = true;
 			}
 			_pool->unborrow(c);
 			c.reset();
+
+			// Re-queue on a failed DB write so the (already-acked) change isn't lost.
+			// Done after the connection is returned so we never sleep holding one.
+			if (commitFailed) {
+				_requeueFailedCommit(qitem);
+			}
 		}
 	}
 

@@ -5,6 +5,12 @@
 
 #define ZT_CENTRAL_CONTROLLER_COMMIT_THREADS 4
 
+// Max times a change is re-queued after a failed DB write before it is dropped.
+// Stopgap durability: the PubSub message was already acked at enqueue time, so a
+// dropped commit would otherwise be lost.  Re-queuing rides out transient DB
+// outages (e.g. an AlloyDB maintenance restart) at the cost of in-memory buffering.
+#define ZT_CENTRAL_CONTROLLER_MAX_COMMIT_RETRIES 100
+
 #include "../../node/Metrics.hpp"
 #include "ConnectionPool.hpp"
 #include "DB.hpp"
@@ -98,7 +104,7 @@ class CentralDB : public DB {
 	std::string _connString;
 
 	struct _queueItem {
-		_queueItem() : jsonData(), notifyListeners(false), traceContext()
+		_queueItem() : jsonData(), notifyListeners(false), traceContext(), retryCount(0)
 		{
 		}
 
@@ -109,8 +115,13 @@ class CentralDB : public DB {
 		nlohmann::json jsonData;
 		bool notifyListeners;
 		std::map<std::string, std::string> traceContext;
+		int retryCount;
 	};
 	BlockingQueue<_queueItem> _commitQueue;
+
+	// Re-queue a change whose DB write failed, with capped backoff, until it
+	// succeeds or ZT_CENTRAL_CONTROLLER_MAX_COMMIT_RETRIES attempts is reached.
+	void _requeueFailedCommit(_queueItem& qitem);
 
 	std::thread _heartbeatThread;
 	std::shared_ptr<NotificationListener> _membersDbWatcher;
