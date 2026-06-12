@@ -68,14 +68,14 @@ if(ZT1_CENTRAL_CONTROLLER)
     set(CMAKE_CXX_STANDARD_REQUIRED True CACHE BOOL "C++ standard required" FORCE)
     set(CMAKE_CXX_EXTENSIONS ON CACHE BOOL "Enable compiler-specific extensions" FORCE)
     add_definitions(-DZT_NONFREE_CONTROLLER=1 -DZT_CONTROLLER_USE_LIBPQ=1 -DZT1_CENTRAL_CONTROLLER=1 -DZT_OPENTELEMETRY_ENABLED=1 -DZT_NO_PEER_METRICS=1)
-    set(CONTROLLER_RUST_FEATURES ztcontroller)
-    set(RUST_BUILD_COMMAND cargo build --release -F ${CONTROLLER_RUST_FEATURES})
 else()
     set(CMAKE_CXX_STANDARD 11 CACHE STRING "C++ standard to conform to")
     set(CMAKE_CXX_STANDARD_REQUIRED True CACHE BOOL "C++ standard required")
     set(CMAKE_CXX_EXTENSIONS ON CACHE BOOL "Enable compiler-specific extensions")
-    set(RUST_BUILD_COMMAND "cargo build --release")
 endif()
+
+# rustybits build command (unquoted so it expands as separate shell arguments)
+set(RUST_BUILD_COMMAND cargo build --release)
 
 # build rustybits
 ExternalProject_Add(

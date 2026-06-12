@@ -24,8 +24,6 @@
 #include <thread>
 #include <utility>
 #ifdef ZT_CONTROLLER_USE_LIBPQ
-#include "CV1.hpp"
-#include "CV2.hpp"
 #include "CentralDB.hpp"
 #ifdef ZT1_CENTRAL_CONTROLLER
 #include "ControllerConfig.hpp"
@@ -687,22 +685,7 @@ void EmbeddedNetworkController::init(const Identity& signingId, Sender* sender)
 
 	_db.addDB(std::shared_ptr<CentralDB>(new CentralDB(_signingId, connString.c_str(), _listenPort, lm, sm, _cc)));
 #else
-#ifdef ZT_CONTROLLER_USE_LIBPQ
-	if ((_path.length() > 9) && (_path.substr(0, 9) == "postgres:")) {
-		fprintf(stderr, "CV1\n");
-		_db.addDB(std::shared_ptr<CV1>(new CV1(_signingId, _path.substr(9).c_str(), _listenPort, _rc)));
-	}
-	else if ((_path.length() > 4) && (_path.substr(0, 4) == "cv2:")) {
-		fprintf(stderr, "CV2\n");
-		_db.addDB(std::shared_ptr<CV2>(new CV2(_signingId, _path.substr(4).c_str(), _listenPort)));
-	}
-	else {
-		fprintf(stderr, "FileDB\n");
-#endif
-		_db.addDB(std::shared_ptr<FileDB>(new FileDB(_path.c_str())));
-#ifdef ZT_CONTROLLER_USE_LIBPQ
-	}
-#endif
+	_db.addDB(std::shared_ptr<FileDB>(new FileDB(_path.c_str())));
 #endif	 // ZT1_CENTRAL_CONTROLLER
 
 	_db.waitForReady();

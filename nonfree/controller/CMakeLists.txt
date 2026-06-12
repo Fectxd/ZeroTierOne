@@ -32,13 +32,9 @@ set(LINK_LIBS
 
 if (ZT1_CENTRAL_CONTROLLER)
     find_package(PostgreSQL REQUIRED)
-    find_package(protobuf REQUIRED)
+    find_package(protobuf CONFIG REQUIRED)
 
     list(APPEND SRC_FILES
-        CV1.cpp
-        CV1.hpp
-        CV2.cpp
-        CV2.hpp
         CentralDB.cpp
         CentralDB.hpp
         ControllerConfig.hpp

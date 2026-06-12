@@ -139,7 +139,7 @@
     <None Include="src\lib.rs" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="target\zeroidc.h" />
+    <ClInclude Include="target\rustybits.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

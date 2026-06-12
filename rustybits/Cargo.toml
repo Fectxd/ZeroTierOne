@@ -9,29 +9,8 @@ crate-type = ["staticlib", "rlib"]
 [features]
 default = ["zeroidc"]
 zeroidc = []
-ztcontroller = [
-    "dep:serde",
-    "dep:serde_json",
-    "dep:temporal-sdk",
-    "dep:temporal-client",
-    "dep:temporal-sdk-core-protos",
-    "dep:tokio",
-    "dep:tokio-util",
-]
 
 [dependencies]
-serde = { version = "1", features = ["derive"], optional = true }
-serde_json = { version = "1", optional = true }
-temporal-sdk = { git = "https://github.com/temporalio/sdk-core", rev = "4614dcb8f4ffd2cb244eb0a19d7485c896e3459e", optional = true }
-temporal-client = { git = "https://github.com/temporalio/sdk-core", rev = "4614dcb8f4ffd2cb244eb0a19d7485c896e3459e", features = ["telemetry"], optional = true }
-temporal-sdk-core-protos = { git = "https://github.com/temporalio/sdk-core", rev = "4614dcb8f4ffd2cb244eb0a19d7485c896e3459e", optional = true}
-tokio = { version = "1.43", features = [
-    "full",
-    "rt",
-    "macros",
-], optional = true }
-tokio-util = { version = "0.7", optional = true }
-uuid = { version = "1.4", features = ["v4"] }
 openidconnect = { version = "3.4", default-features = false, features = [
     "reqwest",
     "native-tls",
@@ -53,7 +32,6 @@ testcontainers-modules = { version = "0.12.1", features = [
 
 [build-dependencies]
 cbindgen = "0.29"
-prost-build = "0.14"
 
 [profile.release]
 strip = "debuginfo"

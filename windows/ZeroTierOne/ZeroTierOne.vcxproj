@@ -96,8 +96,6 @@
     <ClCompile Include="..\..\node\Trace.cpp" />
     <ClCompile Include="..\..\node\Utils.cpp" />
     <ClCompile Include="..\..\nonfree\controller\CtlUtil.cpp" />
-    <ClCompile Include="..\..\nonfree\controller\CV1.cpp" />
-    <ClCompile Include="..\..\nonfree\controller\CV2.cpp" />
     <ClCompile Include="..\..\nonfree\controller\DB.cpp" />
     <ClCompile Include="..\..\nonfree\controller\DBMirrorSet.cpp" />
     <ClCompile Include="..\..\nonfree\controller\EmbeddedNetworkController.cpp" />
@@ -224,8 +222,6 @@
     <ClInclude Include="..\..\node\World.hpp" />
     <ClInclude Include="..\..\nonfree\controller\ConnectionPool.hpp" />
     <ClInclude Include="..\..\nonfree\controller\CtlUtil.hpp" />
-    <ClInclude Include="..\..\nonfree\controller\CV1.hpp" />
-    <ClInclude Include="..\..\nonfree\controller\CV2.hpp" />
     <ClInclude Include="..\..\nonfree\controller\DB.hpp" />
     <ClInclude Include="..\..\nonfree\controller\DBMirrorSet.hpp" />
     <ClInclude Include="..\..\nonfree\controller\EmbeddedNetworkController.hpp" />
