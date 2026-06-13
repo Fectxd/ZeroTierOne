@@ -240,8 +240,14 @@ endif()
 # third-party targets see them too (harmless -- we set no -Werror).
 # ---------------------------------------------------------------------------
 
-# Warnings + position independence: every configuration, matching make.
-add_compile_options(-Wall -Wno-deprecated -fPIC -fPIE)
+# Warnings: every configuration, matching make.
+add_compile_options(-Wall -Wno-deprecated)
+
+# Position independence: PIC for all libraries, PIE for the executables (paired
+# with -pie below). Equivalent to make's -fPIC -fPIE hardening, applied the
+# idiomatic CMake way so -fPIE does NOT leak into bundled shared libraries
+# (e.g. redis++), which fails to link on aarch64.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Release adds a stack protector; debug uses -O1 globally (with -O2 for the hot
 # crypto sources, set per-file in node/CMakeLists.txt).

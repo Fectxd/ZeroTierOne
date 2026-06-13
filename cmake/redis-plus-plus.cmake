@@ -7,13 +7,14 @@ FetchContent_Declare(
     GIT_SHALLOW ON
 )
 set(REDIS_PLUS_PLUS_BUILD_STATIC ON CACHE INTERNAL "Build static library" FORCE)
-set(REDIS_PLUS_PLUS_BUILD_SHARED ON CACHE INTERNAL "Build shared library" FORCE)
+# We only link redis++::redis++_static, so skip the unused shared library.
+set(REDIS_PLUS_PLUS_BUILD_SHARED OFF CACHE INTERNAL "Build shared library" FORCE)
 set(REDIS_PLUS_PLUS_BUILD_TEST OFF CACHE INTERNAL "Build tests" FORCE)
 set(REDIS_PLUS_PLUS_BUILD_STATIC_WITH_PIC ON CACHE INTERNAL "Build static library with PIC" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE INTERNAL "Build shared libraries" FORCE)
 
 FetchContent_MakeAvailable(redis-plus-plus)
 if(NOT TARGET redis++::redis++_static)
-    message(FATAL_ERROR "A required redis-plus-plus target (redis++::redis++) was not imported")
+    message(FATAL_ERROR "A required redis-plus-plus target (redis++::redis++_static) was not imported")
 endif()
 message(STATUS "redis-plus-plus imported")

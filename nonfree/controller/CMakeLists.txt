@@ -91,7 +91,12 @@ endif()
 
 target_include_directories(zerotier-controller PRIVATE ${INCLUDE_DIRS})
 
-add_dependencies(zerotier-controller redis++::redis++)
+# redis++ is only used by the central controller; depend on the static target
+# (the only one we build). target_link_libraries below already orders the build,
+# so this is belt-and-suspenders.
+if (ZT1_CENTRAL_CONTROLLER)
+    add_dependencies(zerotier-controller redis++::redis++_static)
+endif()
 
 target_link_libraries(zerotier-controller 
     ${LINK_LIBS}
