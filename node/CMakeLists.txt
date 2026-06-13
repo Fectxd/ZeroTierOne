@@ -5,12 +5,21 @@ project(zerotier-core LANGUAGES CXX ASM)
 file (GLOB core_src_glob ${PROJ_DIR}/node/*.cpp)
 file (GLOB core_hdr_glob ${PROJ_DIR}/node/*.hpp)
 
-if(${CPU_ARCHITECTURE} STREQUAL "x86_64")
-    set(CMAKE_ASM_FLAGS "${CFLAGS} -x assembler-with-cpp -z noexecstack")
+# Crypto assembly sources are selected by the ZT_USE_*_ASM_* gates set in the
+# top-level CMakeLists.txt (which derives them from the target architecture).
+if(ZT_USE_X64_ASM_SALSA OR ZT_USE_X64_ASM_ED25519 OR ZT_USE_ARM32_NEON_ASM_CRYPTO)
+    set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -x assembler-with-cpp -z noexecstack")
+endif()
+
+if(ZT_USE_X64_ASM_SALSA)
     set(ASM_SALSA_DIR ${CMAKE_SOURCE_DIR}/ext/x64-salsa2012-asm)
+    list(APPEND core_src_glob ${ASM_SALSA_DIR}/salsa2012.s)
+    list(APPEND core_hdr_glob ${ASM_SALSA_DIR}/salsa2012.h)
+endif()
+
+if(ZT_USE_X64_ASM_ED25519)
     set(ASM_ED25519_DIR ${CMAKE_SOURCE_DIR}/ext/ed25519-amd64-asm)
     list(APPEND core_src_glob
-        ${ASM_SALSA_DIR}/salsa2012.s
         #${ASM_ED25519_DIR}/batch.c
         ${ASM_ED25519_DIR}/choose_t.s
         ${ASM_ED25519_DIR}/consts.s
@@ -69,16 +78,30 @@ if(${CPU_ARCHITECTURE} STREQUAL "x86_64")
         ${ASM_ED25519_DIR}/ull4_mul.s
     )
     list(APPEND core_hdr_glob
-        ${ASM_SALSA_DIR}/salsa2012.h
         ${ASM_ED25519_DIR}/fe25519.h
         ${ASM_ED25519_DIR}/ge25519.h
         ${ASM_ED25519_DIR}/hram.h
         ${ASM_ED25519_DIR}/index_heap.h
         ${ASM_ED25519_DIR}/sc25519.h)
     set_property(SOURCE ${ASM_ED25519_DIR}/fe25519_freeze.s PROPERTY COMPILE_FLAGS "-z noexecstack")
-elseif(${CPU_ARCHITECTURE} STREQUAL "aarch64")
-
 endif()
+
+if(ZT_USE_ARM32_NEON_ASM_CRYPTO)
+    set(ASM_ARM32_DIR ${CMAKE_SOURCE_DIR}/ext/arm32-neon-salsa2012-asm)
+    list(APPEND core_src_glob ${ASM_ARM32_DIR}/salsa2012.s)
+    list(APPEND core_hdr_glob ${ASM_ARM32_DIR}/salsa2012.h)
+endif()
+
+# Optimize the hot crypto sources at -O2 even in debug builds; make-linux.mk
+# does this because C25519 in particular is unusably slow at -O0/-O1. (No effect
+# in release, where everything is already -O3.)
+set_property(
+    SOURCE
+        ${PROJ_DIR}/node/Salsa20.cpp
+        ${PROJ_DIR}/node/SHA512.cpp
+        ${PROJ_DIR}/node/C25519.cpp
+        ${PROJ_DIR}/node/Poly1305.cpp
+    APPEND PROPERTY COMPILE_OPTIONS $<$<CONFIG:Debug>:-O2>)
 
 add_library(zerotier-core STATIC ${core_src_glob} ${core_hdr_glob})
 
