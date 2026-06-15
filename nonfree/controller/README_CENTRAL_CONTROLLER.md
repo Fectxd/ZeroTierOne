@@ -4,42 +4,57 @@ NOTE: for ZeroTier, Inc Internal use only.  We do not support these builds for e
 
 ## Prerequisites
 
-`cmake` is used for builds and `conda` is used to manage external dependencies.
+The controller builds with **CMake**. Most dependencies come from your platform's package
+manager; the two version-sensitive libraries that aren't packaged consistently anywhere
+(`opentelemetry-cpp` 1.27 and `google-cloud-cpp` 2.38) are pinned and built from source by
+`scripts/bootstrap-deps.sh`. (Conda is no longer used.)
 
-First, install `conda`:
-
-```bash
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/miniconda.sh
-bash /tmp/miniconda.sh -b -u -p $HOME/miniconda3
-```
-
-Initialize conda:
+### macOS
 
 ```bash
-source ~/miniconda3/bin/activate
-conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
-conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
-conda config --set channel_priority strict
+brew bundle                       # deps from the Brewfile (cmake, ninja, protobuf, grpc, abseil, libpqxx, hiredis, ...)
+rustup-init -y && rustup default stable
+ZT_CONTROLLER_DEPS=1 scripts/bootstrap-deps.sh   # builds opentelemetry-cpp + google-cloud-cpp into ./.deps
 ```
 
-Install external dependencies:
+### Linux (Debian trixie or newer)
 
 ```bash
-conda env create -f conda_env_build.yaml
-conda activate central_controller
+sudo apt-get install -y \
+    build-essential cmake ninja-build git pkg-config ca-certificates curl \
+    libpqxx-dev libpq-dev libhiredis-dev libjemalloc-dev nlohmann-json3-dev \
+    libabsl-dev libprotobuf-dev protobuf-compiler protobuf-compiler-grpc libgrpc++-dev \
+    libgtest-dev libgmock-dev libssl-dev libcurl4-openssl-dev
+# Rust via https://rustup.rs (pinned: rustup default 1.89.0), then:
+ZT_CONTROLLER_DEPS=1 scripts/bootstrap-deps.sh   # builds opentelemetry-cpp + google-cloud-cpp into ./.deps
 ```
+
+`scripts/bootstrap-deps.sh` prints the exact `-DCMAKE_PREFIX_PATH` to use when it finishes.
 
 ## Build the Central Controller Binary
 
-
 ```bash
-cmake -DCMAKE_BUILD_TYPE=Release -DZT1_CENTRAL_CONTROLLER=1 -DCMAKE_INSTALL_PREFIX=$PWD/out -S . -B build/ -DCMAKE_INSTALL_PREFIX=$(shell pwd)/build-out
-cmake --build build/ --target all -j8 --verbose
+# macOS: include the Homebrew prefix and the keg-only libpq prefix.
+PREFIX="$PWD/.deps;$(brew --prefix);$(brew --prefix libpq)"
+# Linux: PREFIX="$PWD/.deps"
+
+cmake -DCMAKE_BUILD_TYPE=Release -DZT1_CENTRAL_CONTROLLER=1 \
+      -DCMAKE_PREFIX_PATH="$PREFIX" -S . -B build
+cmake --build build -j8
 ```
+
+The binary is `build/zerotier-one`.
 
 ## Packaging via Docker
 
-Handled by GitHub Actions
+`ext/central-controller-docker/Dockerfile` builds a conda-free image on Debian trixie
+(apt deps + `scripts/bootstrap-deps.sh` + the CMake build, in a multi-stage builder/runtime):
+
+```bash
+docker build -f ext/central-controller-docker/Dockerfile -t ztcentral-controller .
+```
+
+Official multi-arch images are produced by GitHub Actions.
 
 ## Configuration
 

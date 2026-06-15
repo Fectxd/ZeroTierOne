@@ -17,4 +17,12 @@ FetchContent_MakeAvailable(redis-plus-plus)
 if(NOT TARGET redis++::redis++_static)
     message(FATAL_ERROR "A required redis-plus-plus target (redis++::redis++_static) was not imported")
 endif()
-message(STATUS "redis-plus-plus imported")
+
+# redis++'s static library calls into hiredis but does not propagate that
+# dependency to consumers, so the final link fails with undefined hiredis
+# symbols (redisAppendCommand, redisFree, freeReplyObject, ...). Attach hiredis
+# to the static target's interface. find_library (not find_package(hiredis))
+# because Debian's libhiredis-dev ships no CMake config.
+find_library(HIREDIS_LIB hiredis REQUIRED)
+target_link_libraries(redis++_static INTERFACE ${HIREDIS_LIB})
+message(STATUS "redis-plus-plus imported (hiredis: ${HIREDIS_LIB})")

@@ -298,7 +298,8 @@ include(ExternalProject)
 
 find_package(OpenSSL REQUIRED)
 find_package(nlohmann_json REQUIRED)
-find_package(inja REQUIRED)
+# inja: found if installed (Homebrew), otherwise fetched (Debian has no package).
+include(cmake/inja.cmake)
 
 # Threads (prefer pthreads)
 set(THREADS_PREFER_PTHREAD_FLAG TRUE CACHE INTERNAL "Use pthreads" FORCE)
@@ -312,11 +313,39 @@ endif()
 # else only needs the API.
 if(ZT1_CENTRAL_CONTROLLER)
     find_package(PostgreSQL REQUIRED)
-    find_package(opentelemetry-cpp REQUIRED COMPONENTS api sdk exporters_otlp_grpc exporters_otlp_http exporters_prometheus)
-    find_package(google_cloud_cpp_bigtable REQUIRED)
-    find_package(google_cloud_cpp_pubsub REQUIRED)
+    # opentelemetry-cpp + google-cloud-cpp come from scripts/bootstrap-deps.sh. Find
+    # them non-fatally so we can emit an actionable error (vs CMake's default) if the
+    # prefix wasn't provided. A wrong-mode prefix (api-only OTel) also lands here,
+    # since the missing sdk/exporter components leave opentelemetry-cpp_FOUND false.
+    find_package(opentelemetry-cpp QUIET COMPONENTS api sdk exporters_otlp_grpc exporters_otlp_http)
+    find_package(google_cloud_cpp_bigtable QUIET)
+    find_package(google_cloud_cpp_pubsub QUIET)
+    if(NOT opentelemetry-cpp_FOUND OR NOT google_cloud_cpp_bigtable_FOUND OR NOT google_cloud_cpp_pubsub_FOUND)
+        message(FATAL_ERROR [=[
+Controller dependencies (opentelemetry-cpp and/or google-cloud-cpp) were not found on
+CMAKE_PREFIX_PATH. Build them, then re-run CMake pointing at the prefix:
+
+    ZT_CONTROLLER_DEPS=1 scripts/bootstrap-deps.sh   # builds OTel + google-cloud-cpp into ./.deps
+    cmake -DZT1_CENTRAL_CONTROLLER=1 -DCMAKE_PREFIX_PATH="<prefix>" -S . -B build
+
+bootstrap-deps.sh prints the exact -DCMAKE_PREFIX_PATH to use when it finishes.
+See nonfree/controller/README_CENTRAL_CONTROLLER.md.
+]=])
+    endif()
 else()
-    find_package(opentelemetry-cpp REQUIRED COMPONENTS api)
+    # Daemon/non-controller: only the OTel API (header-only), from the same bootstrap prefix.
+    find_package(opentelemetry-cpp QUIET COMPONENTS api)
+    if(NOT opentelemetry-cpp_FOUND)
+        message(FATAL_ERROR [=[
+opentelemetry-cpp (API) was not found on CMAKE_PREFIX_PATH. Build the header-only OTel
+API, then re-run CMake pointing at the prefix:
+
+    scripts/bootstrap-deps.sh                      # quick, header-only (this is the default)
+    cmake -DCMAKE_PREFIX_PATH="<prefix>" -S . -B build
+
+bootstrap-deps.sh prints the exact -DCMAKE_PREFIX_PATH to use when it finishes.
+]=])
+    endif()
 endif()
 
 # Dependencies not provided by conda.
@@ -387,7 +416,6 @@ if(ZT1_CENTRAL_CONTROLLER)
         opentelemetry-cpp::otlp_http_exporter
         opentelemetry-cpp::otlp_http_log_record_exporter
         opentelemetry-cpp::otlp_http_metric_exporter
-        opentelemetry-cpp::prometheus_exporter
     )
 endif()
 

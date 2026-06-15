@@ -32,7 +32,12 @@ set(LINK_LIBS
 
 if (ZT1_CENTRAL_CONTROLLER)
     find_package(PostgreSQL REQUIRED)
-    find_package(protobuf CONFIG REQUIRED)
+    # Homebrew/vcpkg ship protobuf's CMake config package; Debian's libprotobuf-dev
+    # does not (it's FindProtobuf-module / pkg-config based), so fall back to that.
+    find_package(protobuf CONFIG QUIET)
+    if(NOT protobuf_FOUND)
+        find_package(Protobuf MODULE REQUIRED)
+    endif()
 
     list(APPEND SRC_FILES
         CentralDB.cpp

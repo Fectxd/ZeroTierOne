@@ -318,16 +318,11 @@ ifeq ($(ZT_SSO_SUPPORTED), 1)
 	endif
 endif
 
-OTEL_VERSION=1.21.0
-ifeq (${ZT_OTEL},1)
-	OTEL_INSTALL_DIR=ext/opentelemetry-cpp-${OTEL_VERSION}/localinstall
-	override DEFS+=-DZT_OPENTELEMETRY_ENABLED=1
-	INCLUDES+=-I${OTEL_INSTALL_DIR}/include
-	LDLIBS+=-L${OTEL_INSTALL_DIR}/lib -lopentelemetry_exporter_in_memory_metric -lopentelemetry_exporter_in_memory -lopentelemetry_exporter_ostream_logs -lopentelemetry_exporter_ostream_metrics -lopentelemetry_exporter_ostream_span -lopentelemetry_exporter_otlp_grpc  -lopentelemetry_exporter_otlp_grpc_client -lopentelemetry_exporter_otlp_grpc_log -lopentelemetry_exporter_otlp_grpc_metrics -lopentelemetry_otlp_recordable -lopentelemetry_common -lopentelemetry_trace -lopentelemetry_common -lopentelemetry_resources -lopentelemetry_logs -lopentelemetry_metrics -lopentelemetry_proto -lopentelemetry_proto_grpc -lopentelemetry_version -lprotobuf -lgrpc++
-else
-	OTEL_INSTALL_DIR=ext/opentelemetry-cpp-api-only
-	INCLUDES+=-I${OTEL_INSTALL_DIR}/include
-endif
+# OpenTelemetry: the make build uses the header-only API only. The controller is
+# built via CMake (scripts/bootstrap-deps.sh); the make-based controller OTel build
+# was retired.
+OTEL_INSTALL_DIR=ext/opentelemetry-cpp-api-only
+INCLUDES+=-I${OTEL_INSTALL_DIR}/include
 
 # Disable software updates by default on Linux since that is normally done with package management
 override DEFS+=-DZT_BUILD_PLATFORM=1 -DZT_BUILD_ARCHITECTURE=$(ZT_ARCHITECTURE) -DZT_SOFTWARE_UPDATE_DEFAULT="\"disable\""
@@ -434,19 +429,13 @@ manpages:	FORCE
 
 doc:	manpages
 
-ifeq (${ZT_OTEL},1)
 otel:
-	cd ext/opentelemetry-cpp-1.21.0 && mkdir -p localinstall && cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$(shell pwd)/ext/opentelemetry-cpp-1.21.0/localinstall -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_TESTING=OFF -DOPENTELEMETRY_INSTALL=ON -DWITH_BENCHMARK=OFF -DWITH_EXAMPLES=OFF -DWITH_FUNC_TESTS=OFF -DUSE_THIRDPARTY_LIBRARIES=ON -DWITH_OTLP_GRPC=ON -DWITH_OTLP_HTTP=OFF -DWITH_PROMETHEUS=OFF
-	cd ext/opentelemetry-cpp-1.21.0/build && make -j4 install
-else
-otel:
-	@echo "OpenTelemetry exporter not enabled, skipping build."
-endif
+	@echo "OpenTelemetry API headers are vendored (ext/opentelemetry-cpp-api-only); nothing to build."
 
 ext/${OTEL_INSTALL_DIR}/include/opentelemetry/version.h: otel
 
 clean: FORCE
-	rm -rf *.a *.so *.o node/*.o nonfree/controller/*.o osdep/*.o service/*.o ext/http-parser/*.o ext/miniupnpc/*.o ext/libnatpmp/*.o $(CORE_OBJS) $(ONE_OBJS) zerotier-one zerotier-idtool zerotier-cli zerotier-selftest build-* ZeroTierOneInstaller-* *.deb *.rpm .depend debian/files debian/zerotier-one*.debhelper debian/zerotier-one.substvars debian/*.log debian/zerotier-one doc/node_modules ext/misc/*.o debian/.debhelper debian/debhelper-build-stamp docker/zerotier-one rustybits/target ext/opentelemetry-cpp-${OTEL_VERSION}/localinstall ext/opentelemetry-cpp-${OTEL_VERSION}/build
+	rm -rf *.a *.so *.o node/*.o nonfree/controller/*.o osdep/*.o service/*.o ext/http-parser/*.o ext/miniupnpc/*.o ext/libnatpmp/*.o $(CORE_OBJS) $(ONE_OBJS) zerotier-one zerotier-idtool zerotier-cli zerotier-selftest build-* ZeroTierOneInstaller-* *.deb *.rpm .depend debian/files debian/zerotier-one*.debhelper debian/zerotier-one.substvars debian/*.log debian/zerotier-one doc/node_modules ext/misc/*.o debian/.debhelper debian/debhelper-build-stamp docker/zerotier-one rustybits/target
 
 distclean:	clean
 
@@ -457,20 +446,6 @@ official:	FORCE
 
 docker:	FORCE
 	docker build --no-cache -f ext/installfiles/linux/zerotier-containerized/Dockerfile -t zerotier-containerized .
-
-_buildx:
-	@echo "docker buildx create"
-	# docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-	docker run --privileged --rm tonistiigi/binfmt --install all
-	@echo docker buildx create --name multiarch --driver docker-container --use
-	@echo docker buildx inspect --bootstrap
-
-central-controller:	FORCE
-	make ZT_OTEL=1 otel && ZT_OTEL=1 make -j4 ZT_CONTROLLER=1  one
-
-central-controller-docker: _buildx FORCE
-	docker buildx build --platform linux/amd64,linux/arm64 --no-cache -t registry.zerotier.com/zerotier-central/ztcentral-controller:${TIMESTAMP} -f ext/central-controller-docker/Dockerfile --build-arg git_branch=`git name-rev --name-only HEAD` . --push
-	@echo Image: registry.zerotier.com/zerotier-central/ztcentral-controller:${TIMESTAMP}
 
 debug:	FORCE
 	make ZT_DEBUG=1 one
