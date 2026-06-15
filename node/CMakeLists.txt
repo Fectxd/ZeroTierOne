@@ -94,14 +94,18 @@ endif()
 
 # Optimize the hot crypto sources at -O2 even in debug builds; make-linux.mk
 # does this because C25519 in particular is unusably slow at -O0/-O1. (No effect
-# in release, where everything is already -O3.)
-set_property(
-    SOURCE
-        ${PROJ_DIR}/node/Salsa20.cpp
-        ${PROJ_DIR}/node/SHA512.cpp
-        ${PROJ_DIR}/node/C25519.cpp
-        ${PROJ_DIR}/node/Poly1305.cpp
-    APPEND PROPERTY COMPILE_OPTIONS $<$<CONFIG:Debug>:-O2>)
+# in release, where everything is already -O3.) Skipped on MSVC, where -O2 means
+# /O2 -- incompatible with the /RTC1 runtime checks MSVC injects in Debug; those
+# files just build unoptimized in an MSVC Debug build.
+if(NOT MSVC)
+    set_property(
+        SOURCE
+            ${PROJ_DIR}/node/Salsa20.cpp
+            ${PROJ_DIR}/node/SHA512.cpp
+            ${PROJ_DIR}/node/C25519.cpp
+            ${PROJ_DIR}/node/Poly1305.cpp
+        APPEND PROPERTY COMPILE_OPTIONS $<$<CONFIG:Debug>:-O2>)
+endif()
 
 add_library(zerotier-core STATIC ${core_src_glob} ${core_hdr_glob})
 
