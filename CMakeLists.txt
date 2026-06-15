@@ -341,9 +341,11 @@ if(UNIX AND NOT APPLE)
     string(APPEND CMAKE_EXE_LINKER_FLAGS_RELEASE " -pie -Wl,-z,relro,-z,now")
     add_compile_definitions(ZT_SOFTWARE_UPDATE_DEFAULT="disable")
 elseif(WIN32)
-    # Windows daemon defines from the vcxproj. Self-update default: "apply" on
-    # release, "disable" on debug (matches windows/ZeroTierOne.vcxproj).
-    add_compile_definitions(STATICLIB ZT_SSO_ENABLED=1 ZT_USE_MINIUPNPC MINIUPNP_STATICLIB)
+    # Windows daemon defines from the vcxproj. ZT_EXPORT takes the dllexport branch in
+    # include/ZeroTierOne.h, which suppresses its `#pragma comment(lib, "ZeroTierOne_x64.lib")`
+    # auto-link of the prebuilt SDK static library -- we build the core in-tree, not against
+    # the SDK lib. Self-update default: "apply" on release, "disable" on debug.
+    add_compile_definitions(STATICLIB ZT_SSO_ENABLED=1 ZT_USE_MINIUPNPC MINIUPNP_STATICLIB ZT_EXPORT)
     add_compile_definitions(ZT_SOFTWARE_UPDATE_DEFAULT="$<IF:$<CONFIG:Debug>,disable,apply>")
 endif()
 
