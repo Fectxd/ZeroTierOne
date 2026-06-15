@@ -1132,7 +1132,9 @@ class OneServiceImpl : public OneService {
 #ifdef ZT_USE_MINIUPNPC
 		delete _portMapper;
 #endif
+#ifdef ZT_NONFREE_CONTROLLER
 		delete _controller;
+#endif
 		delete _rc;
 	}
 

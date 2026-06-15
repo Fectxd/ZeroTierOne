@@ -47,6 +47,20 @@ endif()
 # make-linux.mk.
 # ---------------------------------------------------------------------------
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" CPU_ARCHITECTURE)
+# On the Visual Studio generators CMAKE_SYSTEM_PROCESSOR reflects the *host*, not the
+# target. The target architecture is CMAKE_GENERATOR_PLATFORM (-A Win32/x64/ARM64, set
+# by the windows-* presets); normalize it to the canonical names the matrix matches on.
+if(MSVC AND CMAKE_GENERATOR_PLATFORM)
+    string(TOLOWER "${CMAKE_GENERATOR_PLATFORM}" _zt_genplat)
+    if(_zt_genplat STREQUAL "win32")
+        set(CPU_ARCHITECTURE "x86")
+    elseif(_zt_genplat STREQUAL "x64")
+        set(CPU_ARCHITECTURE "amd64")
+    elseif(_zt_genplat STREQUAL "arm64")
+        set(CPU_ARCHITECTURE "arm64")
+    endif()
+    message(STATUS "MSVC target platform (CMAKE_GENERATOR_PLATFORM): ${CMAKE_GENERATOR_PLATFORM} -> ${CPU_ARCHITECTURE}")
+endif()
 message(STATUS "Target CPU (CMAKE_SYSTEM_PROCESSOR): ${CMAKE_SYSTEM_PROCESSOR}")
 
 # ZeroTier architecture code (see node/Constants.hpp); 999 = unknown.
@@ -62,19 +76,24 @@ if(CPU_ARCHITECTURE STREQUAL "x86_64" OR CPU_ARCHITECTURE STREQUAL "amd64")
     set(ZT_USE_X64_ASM_SALSA TRUE)
     set(ZT_USE_X64_ASM_ED25519 TRUE)
     set(ZT_SSO_SUPPORTED TRUE)
-    add_compile_options(-msse -msse2)
+    if(NOT MSVC)
+        add_compile_options(-msse -msse2)
+    endif()
 elseif(CPU_ARCHITECTURE STREQUAL "e2k" OR CPU_ARCHITECTURE STREQUAL "e2k64")
     # Elbrus 2000: x86-compatible arch code, but no x86 crypto assembly.
     set(ZT_ARCHITECTURE 2)
 elseif(CPU_ARCHITECTURE STREQUAL "i386" OR CPU_ARCHITECTURE STREQUAL "i486"
-        OR CPU_ARCHITECTURE STREQUAL "i586" OR CPU_ARCHITECTURE STREQUAL "i686")
+        OR CPU_ARCHITECTURE STREQUAL "i586" OR CPU_ARCHITECTURE STREQUAL "i686"
+        OR CPU_ARCHITECTURE STREQUAL "x86")
     set(ZT_ARCHITECTURE 1)
     set(ZT_SSO_SUPPORTED TRUE)
 elseif(CPU_ARCHITECTURE STREQUAL "aarch64" OR CPU_ARCHITECTURE STREQUAL "arm64")
     set(ZT_ARCHITECTURE 4)
     set(ZT_SSO_SUPPORTED TRUE)
     add_definitions(-DZT_NO_TYPE_PUNNING -DZT_ARCH_ARM_HAS_NEON)
-    add_compile_options(-march=armv8-a+crypto -mtune=generic -mstrict-align)
+    if(NOT MSVC)
+        add_compile_options(-march=armv8-a+crypto -mtune=generic -mstrict-align)
+    endif()
 elseif(CPU_ARCHITECTURE MATCHES "^(arm|armel|armhf|armv6|armv6l|armv6k|armv6kz|armv6zk|armv7|armv7l|armv7hl|armv7ve)$")
     set(ZT_ARCHITECTURE 3)
     set(ZT_USE_ARM32_NEON_ASM_CRYPTO TRUE)
@@ -163,6 +182,24 @@ if(ZT_ARCHITECTURE EQUAL 3)
     endif()
 endif()
 
+# MSVC cannot assemble the GNU .s crypto sources; use the SSE-intrinsic Salsa20
+# instead (matches windows/ZeroTierOne.vcxproj). The x64 default ISA already
+# includes SSE2, so the -msse/-march/-m32 options above (guarded if(NOT MSVC))
+# aren't needed here.
+if(MSVC)
+    set(ZT_USE_X64_ASM_SALSA FALSE)
+    set(ZT_USE_X64_ASM_ED25519 FALSE)
+    set(ZT_USE_ARM32_NEON_ASM_CRYPTO FALSE)
+    # SSE-intrinsic Salsa20 on Intel targets only (x86 = 1, x64 = 2); ARM64 (4) uses
+    # the portable path. Matches windows/ZeroTierOne.vcxproj, which defines
+    # ZT_SALSA20_SSE for both Win32 and x64 with the *default* ISA -- MSVC's SSE/SSE2
+    # intrinsics are always available, so no /arch flag is needed (and 32-bit MSVC
+    # already defaults to /arch:SSE2).
+    if(ZT_ARCHITECTURE EQUAL 1 OR ZT_ARCHITECTURE EQUAL 2)
+        add_definitions(-DZT_SALSA20_SSE)
+    endif()
+endif()
+
 # Single sign-on (OIDC) support.
 if(ZT_SSO_SUPPORTED)
     add_definitions(-DZT_SSO_SUPPORTED=1)
@@ -200,7 +237,7 @@ endif()
 add_definitions(-DZT_BUILD_PLATFORM=${ZT_BUILD_PLATFORM} -DZT_BUILD_ARCHITECTURE=${ZT_ARCHITECTURE})
 
 # Address Sanitizer (only meaningful on x86_64/arm64).
-if(ADDRESS_SANITIZER AND (ZT_ARCHITECTURE EQUAL 2 OR ZT_ARCHITECTURE EQUAL 4))
+if(ADDRESS_SANITIZER AND NOT MSVC AND (ZT_ARCHITECTURE EQUAL 2 OR ZT_ARCHITECTURE EQUAL 4))
     add_compile_options(-fsanitize=address)
     add_link_options(-fsanitize=address)
 endif()
@@ -221,9 +258,28 @@ set(CMAKE_CXX_EXTENSIONS ON CACHE BOOL "Enable compiler-specific extensions" FOR
 # ---------------------------------------------------------------------------
 add_definitions(-DCMAKE_BUILD)
 
+# The Central Controller is not supported on Windows (no libpq / redis / google-
+# cloud-cpp path there); the daemon is the only supported Windows build.
+if(WIN32 AND ZT1_CENTRAL_CONTROLLER)
+    message(FATAL_ERROR
+        "ZT1_CENTRAL_CONTROLLER is not supported on Windows -- build the daemon "
+        "(configure without -DZT1_CENTRAL_CONTROLLER).")
+endif()
+
+# ZT_NONFREE pulls in the bundled FileDB-based network controller -- the controller
+# that ships in official daemon builds. Mirrors make-linux.mk, where ZT_CONTROLLER=1
+# implies ZT_NONFREE=1; ZT1_CENTRAL_CONTROLLER is a superset that adds the Postgres/
+# PubSub/BigTable/Redis backends on top (handled inside nonfree/controller).
+option(ZT_NONFREE "Build the bundled FileDB network controller into the daemon (required by ZT1_CENTRAL_CONTROLLER)" ON)
+if(ZT1_CENTRAL_CONTROLLER)
+    set(ZT_NONFREE ON)
+endif()
+if(ZT_NONFREE)
+    add_definitions(-DZT_NONFREE_CONTROLLER=1)
+endif()
+
 if(ZT1_CENTRAL_CONTROLLER)
     add_definitions(
-        -DZT_NONFREE_CONTROLLER=1
         -DZT_CONTROLLER_USE_LIBPQ=1
         -DZT1_CENTRAL_CONTROLLER=1
         -DZT_OPENTELEMETRY_ENABLED=1
@@ -241,33 +297,54 @@ endif()
 # ---------------------------------------------------------------------------
 
 # Warnings: every configuration, matching make.
-add_compile_options(-Wall -Wno-deprecated)
+if(MSVC)
+    add_compile_options(/W3)
+else()
+    add_compile_options(-Wall -Wno-deprecated)
+endif()
 
 # Position independence: PIC for all libraries, PIE for the executables (paired
 # with -pie below). Equivalent to make's -fPIC -fPIE hardening, applied the
 # idiomatic CMake way so -fPIE does NOT leak into bundled shared libraries
-# (e.g. redis++), which fails to link on aarch64.
+# (e.g. redis++), which fails to link on aarch64. (No-op on MSVC/Windows.)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Release adds a stack protector; debug uses -O1 globally (with -O2 for the hot
-# crypto sources, set per-file in node/CMakeLists.txt).
-add_compile_options($<$<NOT:$<CONFIG:Debug>>:-fstack-protector>)
-add_compile_options($<$<CONFIG:Debug>:-O1>)
+if(MSVC)
+    # Static CRT to match the vcxproj's /MT (/MTd for Debug). CMP0091 (NEW via
+    # cmake_minimum_required >= 3.15) routes this instead of patching CMAKE_*_FLAGS.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    # /MP parallel compile, /EHsc C++ exceptions, /utf-8 source + exec charset.
+    add_compile_options(/MP /EHsc /utf-8)
+    # Always-on Windows defines from the vcxproj.
+    add_compile_definitions(WIN32 NOMINMAX FD_SETSIZE=1024 _CRT_SECURE_NO_WARNINGS)
+else()
+    # Release adds a stack protector; debug uses -O1 globally (with -O2 for the hot
+    # crypto sources, set per-file in node/CMakeLists.txt).
+    add_compile_options($<$<NOT:$<CONFIG:Debug>>:-fstack-protector>)
+    add_compile_options($<$<CONFIG:Debug>:-O1>)
+endif()
 
 # make's debug build also defines these (ZT_DEBUG implies ZT_TRACE).
 add_compile_definitions($<$<CONFIG:Debug>:ZT_DEBUG> $<$<CONFIG:Debug>:ZT_TRACE>)
 
-# Stop libstdc++ from pulling in its mt/pool/extptr/debug allocators (no-op on
-# macOS/libc++).
-add_definitions(-D_MT_ALLOCATOR_H -D_POOL_ALLOCATOR_H -D_EXTPTR_ALLOCATOR_H -D_DEBUG_ALLOCATOR_H)
+# Stop libstdc++ from pulling in its mt/pool/extptr/debug allocators (GNU
+# libstdc++ only; no-op on macOS/libc++, irrelevant to MSVC's STL).
+if(NOT MSVC)
+    add_definitions(-D_MT_ALLOCATOR_H -D_POOL_ALLOCATOR_H -D_EXTPTR_ALLOCATOR_H -D_DEBUG_ALLOCATOR_H)
+endif()
 
-# GNU-ld hardening (not understood by the macOS linker). make applies
-# -Wl,-z,noexecstack to every build and -pie -Wl,-z,relro,-z,now to release, and
-# disables self-update on Linux/BSD (left to package management).
-if(NOT APPLE)
+# GNU-ld hardening (Linux/BSD only -- not understood by the macOS or MSVC linkers).
+# make applies -Wl,-z,noexecstack to every build and -pie -Wl,-z,relro,-z,now to
+# release, and disables self-update on Linux/BSD (left to package management).
+if(UNIX AND NOT APPLE)
     string(APPEND CMAKE_EXE_LINKER_FLAGS " -Wl,-z,noexecstack")
     string(APPEND CMAKE_EXE_LINKER_FLAGS_RELEASE " -pie -Wl,-z,relro,-z,now")
     add_compile_definitions(ZT_SOFTWARE_UPDATE_DEFAULT="disable")
+elseif(WIN32)
+    # Windows daemon defines from the vcxproj. Self-update default: "apply" on
+    # release, "disable" on debug (matches windows/ZeroTierOne.vcxproj).
+    add_compile_definitions(STATICLIB ZT_SSO_ENABLED=1 ZT_USE_MINIUPNPC MINIUPNP_STATICLIB)
+    add_compile_definitions(ZT_SOFTWARE_UPDATE_DEFAULT="$<IF:$<CONFIG:Debug>,disable,apply>")
 endif()
 
 # Optional feature toggles (mirror make-linux.mk's ZT_* switches).
@@ -348,15 +425,24 @@ bootstrap-deps.sh prints the exact -DCMAKE_PREFIX_PATH to use when it finishes.
     endif()
 endif()
 
-# Dependencies not provided by conda.
+# Bundled / fetched dependencies. redis-plus-plus is controller-only (the daemon
+# never links it -- all redis++ references sit behind ZT1_CENTRAL_CONTROLLER), so
+# only pull it in for the controller build. This also keeps it out of the Windows
+# daemon build, where the controller is unsupported.
 include(cmake/cpp-httplib.cmake)
-include(cmake/redis-plus-plus.cmake)
 include(cmake/miniupnpc.cmake)
+if(ZT1_CENTRAL_CONTROLLER)
+    include(cmake/redis-plus-plus.cmake)
+endif()
 
 # ---------------------------------------------------------------------------
 # rustybits (built via cargo, linked as a static library)
 # ---------------------------------------------------------------------------
-set(RUSTYBITS_LIB ${PROJ_DIR}/rustybits/target/release/librustybits.a)
+if(WIN32)
+    set(RUSTYBITS_LIB ${PROJ_DIR}/rustybits/target/release/rustybits.lib)
+else()
+    set(RUSTYBITS_LIB ${PROJ_DIR}/rustybits/target/release/librustybits.a)
+endif()
 set(RUSTYBITS_INCLUDE_DIR ${PROJ_DIR}/rustybits/target)
 
 ExternalProject_Add(
@@ -384,7 +470,10 @@ add_subdirectory(ext)
 add_subdirectory(node)
 add_subdirectory(osdep)
 add_subdirectory(service)
-add_subdirectory(nonfree)
+# The bundled network controller is built only for ZT_NONFREE (official) builds.
+if(ZT_NONFREE)
+    add_subdirectory(nonfree)
+endif()
 
 # ---------------------------------------------------------------------------
 # Link libraries
@@ -394,7 +483,6 @@ set(LINKED_LIBRARIES
     zerotier-service
     zerotier-osdep
     zerotier-core
-    zerotier-controller
     Threads::Threads
     nlohmann_json::nlohmann_json
     opentelemetry-cpp::api
@@ -402,6 +490,12 @@ set(LINKED_LIBRARIES
     OpenSSL::Crypto
     OpenSSL::SSL
 )
+
+# The bundled FileDB network controller (only built when ZT_NONFREE; central
+# backends are layered in under ZT1_CENTRAL_CONTROLLER inside the target).
+if(ZT_NONFREE)
+    list(APPEND LINKED_LIBRARIES zerotier-controller)
+endif()
 
 # Controller-only OpenTelemetry exporters.
 if(ZT1_CENTRAL_CONTROLLER)
@@ -441,6 +535,12 @@ if(APPLE)
     )
 endif()
 
+# Windows system libraries (from windows/ZeroTierOne/ZeroTierOne.vcxproj).
+if(WIN32)
+    list(APPEND LINKED_LIBRARIES
+        ws2_32 wsock32 Iphlpapi Rpcrt4 bcrypt crypt32 ncrypt ntdll secur32 userenv wbemuuid)
+endif()
+
 # ---------------------------------------------------------------------------
 # Targets
 # ---------------------------------------------------------------------------
@@ -448,15 +548,29 @@ add_executable(zerotier-one
     one.cpp
     ext/http-parser/http_parser.c
 )
+# On Windows one.cpp pulls in the service wrapper and includes it as
+# "windows/ZeroTierOne/...", so compile those sources in and add the repo root to
+# the include path. (The SDK and TAP driver stay in the MSBuild solution.)
+if(WIN32)
+    target_sources(zerotier-one PRIVATE
+        windows/ZeroTierOne/ServiceBase.cpp
+        windows/ZeroTierOne/ServiceInstaller.cpp
+        windows/ZeroTierOne/ZeroTierOneService.cpp
+    )
+    target_include_directories(zerotier-one PRIVATE ${PROJ_DIR})
+endif()
 target_link_libraries(zerotier-one ${LINKED_LIBRARIES})
 
-add_executable(zerotier-selftest
-    selftest.cpp
-)
-target_link_libraries(zerotier-selftest
-    zerotier-core
-    zerotier-osdep
-    Threads::Threads
-    nlohmann_json::nlohmann_json
-    prometheus-cpp-lite
-)
+# The Windows .vcxproj doesn't build the selftest; skip it on Windows too.
+if(NOT WIN32)
+    add_executable(zerotier-selftest
+        selftest.cpp
+    )
+    target_link_libraries(zerotier-selftest
+        zerotier-core
+        zerotier-osdep
+        Threads::Threads
+        nlohmann_json::nlohmann_json
+        prometheus-cpp-lite
+    )
+endif()

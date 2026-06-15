@@ -53,6 +53,16 @@ if(APPLE)
         MacDNSHelper.hpp)
 endif()
 
+if(WIN32)
+    list(APPEND SRC_FILES
+        WindowsEthernetTap.cpp
+        WindowsEthernetTap.hpp
+        WinDNSHelper.cpp
+        WinDNSHelper.hpp
+        WinFWHelper.cpp
+        WinFWHelper.hpp)
+endif()
+
 add_library(zerotier-osdep STATIC ${SRC_FILES})
 target_link_libraries(zerotier-osdep
     PRIVATE 

@@ -1,0 +1,125 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "unix-base",
+      "hidden": true,
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build-${presetName}",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "${sourceDir}/.deps"
+      }
+    },
+    {
+      "name": "linux",
+      "inherits": "unix-base",
+      "displayName": "Linux daemon",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-controller",
+      "inherits": "linux",
+      "displayName": "Linux Central Controller",
+      "cacheVariables": { "ZT1_CENTRAL_CONTROLLER": "ON" }
+    },
+    {
+      "name": "linux-free",
+      "inherits": "linux",
+      "displayName": "Linux daemon (free / ZT_NONFREE=OFF, no bundled controller)",
+      "cacheVariables": { "ZT_NONFREE": "OFF" }
+    },
+    {
+      "name": "macos",
+      "inherits": "unix-base",
+      "displayName": "macOS daemon",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "${sourceDir}/.deps;$env{HOMEBREW_PREFIX};$env{HOMEBREW_PREFIX}/opt/openssl@3;$env{HOMEBREW_PREFIX}/opt/libpq"
+      }
+    },
+    {
+      "name": "macos-controller",
+      "inherits": "macos",
+      "displayName": "macOS Central Controller",
+      "cacheVariables": { "ZT1_CENTRAL_CONTROLLER": "ON" }
+    },
+    {
+      "name": "macos-free",
+      "inherits": "macos",
+      "displayName": "macOS daemon (free / ZT_NONFREE=OFF, no bundled controller)",
+      "cacheVariables": { "ZT_NONFREE": "OFF" }
+    },
+    {
+      "name": "windows-x64",
+      "displayName": "Windows x64 daemon (MSVC + vcpkg)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build-${presetName}",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/.deps"
+      }
+    },
+    {
+      "name": "windows-arm64",
+      "inherits": "windows-x64",
+      "displayName": "Windows ARM64 daemon (MSVC + vcpkg)",
+      "architecture": "ARM64",
+      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "arm64-windows-static" }
+    },
+    {
+      "name": "windows-x86",
+      "inherits": "windows-x64",
+      "displayName": "Windows x86 daemon (MSVC + vcpkg)",
+      "architecture": "Win32",
+      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "x86-windows-static" }
+    },
+    {
+      "name": "windows-x64-free",
+      "inherits": "windows-x64",
+      "displayName": "Windows x64 daemon (free / ZT_NONFREE=OFF, no bundled controller)",
+      "cacheVariables": { "ZT_NONFREE": "OFF" }
+    },
+    {
+      "name": "windows-arm64-free",
+      "inherits": "windows-arm64",
+      "displayName": "Windows ARM64 daemon (free / ZT_NONFREE=OFF, no bundled controller)",
+      "cacheVariables": { "ZT_NONFREE": "OFF" }
+    },
+    {
+      "name": "windows-x86-free",
+      "inherits": "windows-x86",
+      "displayName": "Windows x86 daemon (free / ZT_NONFREE=OFF, no bundled controller)",
+      "cacheVariables": { "ZT_NONFREE": "OFF" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "linux-release",            "configurePreset": "linux",            "configuration": "Release" },
+    { "name": "linux-debug",              "configurePreset": "linux",            "configuration": "Debug" },
+    { "name": "linux-controller-release", "configurePreset": "linux-controller", "configuration": "Release" },
+    { "name": "linux-controller-debug",   "configurePreset": "linux-controller", "configuration": "Debug" },
+    { "name": "macos-release",            "configurePreset": "macos",            "configuration": "Release" },
+    { "name": "macos-debug",              "configurePreset": "macos",            "configuration": "Debug" },
+    { "name": "macos-controller-release", "configurePreset": "macos-controller", "configuration": "Release" },
+    { "name": "macos-controller-debug",   "configurePreset": "macos-controller", "configuration": "Debug" },
+    { "name": "linux-free-release",       "configurePreset": "linux-free",       "configuration": "Release" },
+    { "name": "linux-free-debug",         "configurePreset": "linux-free",       "configuration": "Debug" },
+    { "name": "macos-free-release",       "configurePreset": "macos-free",       "configuration": "Release" },
+    { "name": "macos-free-debug",         "configurePreset": "macos-free",       "configuration": "Debug" },
+    { "name": "windows-x64-release",      "configurePreset": "windows-x64",      "configuration": "Release" },
+    { "name": "windows-x64-debug",        "configurePreset": "windows-x64",      "configuration": "Debug" },
+    { "name": "windows-arm64-release",    "configurePreset": "windows-arm64",    "configuration": "Release" },
+    { "name": "windows-arm64-debug",      "configurePreset": "windows-arm64",    "configuration": "Debug" },
+    { "name": "windows-x86-release",      "configurePreset": "windows-x86",      "configuration": "Release" },
+    { "name": "windows-x86-debug",        "configurePreset": "windows-x86",      "configuration": "Debug" },
+    { "name": "windows-x64-free-release",   "configurePreset": "windows-x64-free",   "configuration": "Release" },
+    { "name": "windows-x64-free-debug",     "configurePreset": "windows-x64-free",   "configuration": "Debug" },
+    { "name": "windows-arm64-free-release", "configurePreset": "windows-arm64-free", "configuration": "Release" },
+    { "name": "windows-arm64-free-debug",   "configurePreset": "windows-arm64-free", "configuration": "Debug" },
+    { "name": "windows-x86-free-release",   "configurePreset": "windows-x86-free",   "configuration": "Release" },
+    { "name": "windows-x86-free-debug",     "configurePreset": "windows-x86-free",   "configuration": "Debug" }
+  ]
+}
