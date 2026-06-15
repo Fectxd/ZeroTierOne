@@ -36,7 +36,22 @@ if(ZT1_CENTRAL_CONTROLLER)
     list(APPEND LINK_LIBS
         pqxx
         redis++::redis++_static
+        # OneService.cpp includes the OTLP exporter headers, which pull in the
+        # generated *.pb.h. OTel (>= 1.22) stamps those with OPENTELEMETRY_PROTO_API --
+        # a PUBLIC compile definition carried by the opentelemetry_proto target -- so
+        # this library must link the exporter targets (which transitively bring
+        # opentelemetry_proto), not just ::sdk, or the macro is undefined when compiling
+        # OneService.cpp. (1.21 didn't stamp it, which is why bumping OTel surfaced this.)
         opentelemetry-cpp::sdk
+        opentelemetry-cpp::trace
+        opentelemetry-cpp::proto_grpc
+        opentelemetry-cpp::otlp_grpc_client
+        opentelemetry-cpp::otlp_grpc_exporter
+        opentelemetry-cpp::otlp_grpc_log_record_exporter
+        opentelemetry-cpp::otlp_grpc_metrics_exporter
+        opentelemetry-cpp::otlp_http_exporter
+        opentelemetry-cpp::otlp_http_log_record_exporter
+        opentelemetry-cpp::otlp_http_metric_exporter
     )
 endif()
 
