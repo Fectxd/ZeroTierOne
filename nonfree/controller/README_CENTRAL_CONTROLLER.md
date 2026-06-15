@@ -36,13 +36,15 @@ ZT_CONTROLLER_DEPS=1 scripts/bootstrap-deps.sh   # builds opentelemetry-cpp + go
 The simplest path is the CMake presets (`cmake --list-presets` shows the ones for your OS):
 
 ```bash
-cmake --preset macos-controller          # or: linux-controller
+cmake --preset macos-controller-release          # or: linux-controller-release
 cmake --build --preset macos-controller-release
 ```
 
 The presets set `-DZT1_CENTRAL_CONTROLLER=1`, the `.deps` prefix, and (on macOS) the Homebrew/
-keg-only paths for you. For the daemon, drop `-controller` (`macos` / `linux`). Equivalent manual
-invocation:
+keg-only paths for you. For the daemon drop `-controller` (`macos-release` / `linux-release`), and use
+the `-debug` variants for Debug builds. (macOS/Linux presets use Unix Makefiles, which are
+single-config, so the build type is baked into the preset name; Windows uses VS multi-config.)
+Equivalent manual invocation:
 
 ```bash
 # macOS: include the Homebrew prefix and the keg-only libpq prefix.
@@ -54,7 +56,8 @@ cmake -DCMAKE_BUILD_TYPE=Release -DZT1_CENTRAL_CONTROLLER=1 \
 cmake --build build -j8
 ```
 
-The binary is `build/zerotier-one` (or `build-<preset>/<config>/zerotier-one` with a preset).
+The binary is `build/zerotier-one` (manual) or `build-<preset>/zerotier-one` (preset; single-config,
+so no `Release/` subfolder on macOS/Linux — that subfolder only exists for the Windows VS presets).
 
 ## Packaging via Docker
 
