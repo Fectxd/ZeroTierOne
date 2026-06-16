@@ -1,8 +1,7 @@
 {
   "name": "zerotierone",
-  "description": "External dependencies for the ZeroTier One Windows daemon build. opentelemetry-cpp (API only) is provided by scripts/bootstrap-deps.ps1, and inja/cpp-httplib/miniupnpc are fetched by CMake, so they are intentionally not listed here. Only used when configuring with the vcpkg toolchain (the windows-* CMake presets); inert on Linux/macOS.",
+  "description": "External dependencies for the ZeroTier One Windows daemon build. opentelemetry-cpp (API only) is provided by scripts/bootstrap-deps.ps1, and inja/cpp-httplib/miniupnpc are fetched by CMake, so they are intentionally not listed here. OpenSSL is not needed on Windows either: the control plane is plain-HTTP cpp-httplib and rustybits' SSO TLS uses SChannel (native-tls). Only used when configuring with the vcpkg toolchain (the windows-* CMake presets); inert on Linux/macOS.",
   "dependencies": [
-    "openssl",
     "nlohmann-json"
   ]
 }

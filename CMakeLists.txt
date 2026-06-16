@@ -74,9 +74,17 @@ set(ZT_SSO_SUPPORTED FALSE)
 if(CPU_ARCHITECTURE STREQUAL "x86_64" OR CPU_ARCHITECTURE STREQUAL "amd64")
     set(ZT_ARCHITECTURE 2)
     set(ZT_USE_X64_ASM_SALSA TRUE)
-    set(ZT_USE_X64_ASM_ED25519 TRUE)
+    # x64 ed25519 asm (qhasm): Linux/BSD only here, matching make-mac.mk which omits it on
+    # macOS (macOS uses the portable Ed25519). NB: it *does* assemble on macOS and the .s
+    # export macOS-underscored symbols, so this is a parity choice with make-mac.mk, not a
+    # technical limitation.
+    if(NOT APPLE)
+        set(ZT_USE_X64_ASM_ED25519 TRUE)
+    endif()
     set(ZT_SSO_SUPPORTED TRUE)
-    if(NOT MSVC)
+    # macOS x86_64 has SSE2 by default; skip the explicit flag (it would also leak into
+    # the arm64 slice of a universal build). See the aarch64 branch note below.
+    if(NOT MSVC AND NOT APPLE)
         add_compile_options(-msse -msse2)
     endif()
 elseif(CPU_ARCHITECTURE STREQUAL "e2k" OR CPU_ARCHITECTURE STREQUAL "e2k64")
@@ -90,9 +98,15 @@ elseif(CPU_ARCHITECTURE STREQUAL "i386" OR CPU_ARCHITECTURE STREQUAL "i486"
 elseif(CPU_ARCHITECTURE STREQUAL "aarch64" OR CPU_ARCHITECTURE STREQUAL "arm64")
     set(ZT_ARCHITECTURE 4)
     set(ZT_SSO_SUPPORTED TRUE)
-    add_definitions(-DZT_NO_TYPE_PUNNING -DZT_ARCH_ARM_HAS_NEON)
-    if(NOT MSVC)
-        add_compile_options(-march=armv8-a+crypto -mtune=generic -mstrict-align)
+    # On Apple, omit the explicit arch defines/flags and let Constants.hpp / AES.hpp
+    # self-detect from compiler builtins (per -arch slice) -- this is what make-mac.mk
+    # does, and it's required for universal (arm64 + x86_64) builds, where a global
+    # -march=armv8-a+crypto or -DZT_ARCH_ARM_HAS_NEON would wrongly hit the x86_64 slice.
+    if(NOT APPLE)
+        add_definitions(-DZT_NO_TYPE_PUNNING -DZT_ARCH_ARM_HAS_NEON)
+        if(NOT MSVC)
+            add_compile_options(-march=armv8-a+crypto -mtune=generic -mstrict-align)
+        endif()
     endif()
 elseif(CPU_ARCHITECTURE MATCHES "^(arm|armel|armhf|armv6|armv6l|armv6k|armv6kz|armv6zk|armv7|armv7l|armv7hl|armv7ve)$")
     set(ZT_ARCHITECTURE 3)
@@ -203,6 +217,20 @@ endif()
 # Single sign-on (OIDC) support.
 if(ZT_SSO_SUPPORTED)
     add_definitions(-DZT_SSO_SUPPORTED=1)
+endif()
+
+# A universal macOS build can't put the per-arch crypto .s asm in the (fat) core target --
+# it would be assembled for the wrong slice. Mirror make-mac.mk: keep the x64 Salsa20/12
+# asm but build it as a separate x86_64-only object (node/CMakeLists.txt) and define
+# ZT_USE_X64_ASM_SALSA2012 so Packet.cpp uses it -- its `&& ZT_ARCH_X64` guard keeps it off
+# the arm64 slice. The ed25519/arm32 asm aren't used on macOS, so drop those.
+list(LENGTH CMAKE_OSX_ARCHITECTURES _zt_osx_arch_count)
+if(APPLE AND _zt_osx_arch_count GREATER 1)
+    set(ZT_USE_X64_ASM_SALSA FALSE)              # not added to the fat core target...
+    set(ZT_MACOS_UNIVERSAL_X64_SALSA_ASM TRUE)   # ...built x86_64-only and linked in instead
+    add_definitions(-DZT_USE_X64_ASM_SALSA2012)
+    set(ZT_USE_X64_ASM_ED25519 FALSE)
+    set(ZT_USE_ARM32_NEON_ASM_CRYPTO FALSE)
 endif()
 
 # Faster crypto assembly. These -D gates pair with the source selection in
@@ -375,7 +403,17 @@ endif()
 include(FetchContent)
 include(ExternalProject)
 
-find_package(OpenSSL REQUIRED)
+# OpenSSL is not used by the C++ daemon: the control plane is plain-HTTP cpp-httplib
+# (HTTPLIB_USE_OPENSSL_IF_AVAILABLE=OFF) and SSO/OIDC TLS lives in rustybits (native-tls).
+# It IS needed for the controller (libpq/redis TLS) and on Linux/BSD (rustybits' native-tls
+# links system OpenSSL there). macOS/Windows daemons need none -- which is what lets a
+# universal macOS build avoid a fat OpenSSL.
+if(ZT1_CENTRAL_CONTROLLER OR (UNIX AND NOT APPLE))
+    set(ZT_NEED_OPENSSL TRUE)
+endif()
+if(ZT_NEED_OPENSSL)
+    find_package(OpenSSL REQUIRED)
+endif()
 find_package(nlohmann_json REQUIRED)
 # inja: found if installed (Homebrew), otherwise fetched (Debian has no package).
 include(cmake/inja.cmake)
@@ -441,9 +479,62 @@ endif()
 # rustybits (built via cargo, linked as a static library)
 # ---------------------------------------------------------------------------
 if(WIN32)
-    set(RUSTYBITS_LIB ${PROJ_DIR}/rustybits/target/release/rustybits.lib)
+    # cargo builds for the host triple by default; cross-target the selected arch
+    # explicitly so an x64 host can build x86/ARM64. The lib then lands under
+    # target/<triple>/release. (The cbindgen header always goes to target/rustybits.h
+    # per rustybits/build.rs, regardless of --target.) Requires the Rust target to be
+    # installed: rustup target add {i686,aarch64}-pc-windows-msvc.
+    if(ZT_ARCHITECTURE EQUAL 1)
+        set(RUSTYBITS_TRIPLE i686-pc-windows-msvc)
+    elseif(ZT_ARCHITECTURE EQUAL 4)
+        set(RUSTYBITS_TRIPLE aarch64-pc-windows-msvc)
+    else()
+        set(RUSTYBITS_TRIPLE x86_64-pc-windows-msvc)
+    endif()
+    set(RUSTYBITS_LIB ${PROJ_DIR}/rustybits/target/${RUSTYBITS_TRIPLE}/release/rustybits.lib)
+    set(RUSTYBITS_BUILD_COMMAND cd ${PROJ_DIR}/rustybits && cargo build --release --target ${RUSTYBITS_TRIPLE})
+elseif(APPLE)
+    # Honor CMAKE_OSX_ARCHITECTURES so rustybits matches the C/C++ slices. cargo builds
+    # one target triple at a time, so a universal (multi-arch) build builds each arch and
+    # lipo's them into one fat archive. Unset = native host build. Cross / universal builds
+    # need the Rust target(s): rustup target add {x86_64,aarch64}-apple-darwin.
+    set(_rb_triples "")
+    foreach(_a IN LISTS CMAKE_OSX_ARCHITECTURES)
+        if(_a STREQUAL "x86_64")
+            list(APPEND _rb_triples x86_64-apple-darwin)
+        elseif(_a STREQUAL "arm64")
+            list(APPEND _rb_triples aarch64-apple-darwin)
+        endif()
+    endforeach()
+    list(LENGTH _rb_triples _rb_n)
+    if(_rb_n GREATER 1)
+        # Universal: build each arch, then lipo into a single fat static lib.
+        set(RUSTYBITS_LIB ${PROJ_DIR}/rustybits/target/zt-universal/librustybits.a)
+        set(RUSTYBITS_BUILD_COMMAND "")
+        set(_rb_lipo_inputs "")
+        foreach(_t IN LISTS _rb_triples)
+            if(RUSTYBITS_BUILD_COMMAND)
+                list(APPEND RUSTYBITS_BUILD_COMMAND COMMAND)
+            endif()
+            list(APPEND RUSTYBITS_BUILD_COMMAND cd ${PROJ_DIR}/rustybits && cargo build --release --target ${_t})
+            list(APPEND _rb_lipo_inputs ${PROJ_DIR}/rustybits/target/${_t}/release/librustybits.a)
+        endforeach()
+        list(APPEND RUSTYBITS_BUILD_COMMAND
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJ_DIR}/rustybits/target/zt-universal
+            COMMAND lipo -create -output ${RUSTYBITS_LIB} ${_rb_lipo_inputs})
+    elseif(_rb_n EQUAL 1)
+        # Single explicit arch (e.g. cross-compiling x86_64 on an arm64 host).
+        set(RUSTYBITS_LIB ${PROJ_DIR}/rustybits/target/${_rb_triples}/release/librustybits.a)
+        set(RUSTYBITS_BUILD_COMMAND cd ${PROJ_DIR}/rustybits && cargo build --release --target ${_rb_triples})
+    else()
+        # No explicit arch: native host build.
+        set(RUSTYBITS_LIB ${PROJ_DIR}/rustybits/target/release/librustybits.a)
+        set(RUSTYBITS_BUILD_COMMAND cd ${PROJ_DIR}/rustybits && cargo build --release)
+    endif()
 else()
+    # Linux / BSD: native host build.
     set(RUSTYBITS_LIB ${PROJ_DIR}/rustybits/target/release/librustybits.a)
+    set(RUSTYBITS_BUILD_COMMAND cd ${PROJ_DIR}/rustybits && cargo build --release)
 endif()
 set(RUSTYBITS_INCLUDE_DIR ${PROJ_DIR}/rustybits/target)
 
@@ -451,7 +542,7 @@ ExternalProject_Add(
     rustybits_build
     DOWNLOAD_COMMAND ""
     CONFIGURE_COMMAND ""
-    BUILD_COMMAND cd ${PROJ_DIR}/rustybits && cargo build --release
+    BUILD_COMMAND ${RUSTYBITS_BUILD_COMMAND}
     INSTALL_COMMAND ""
     BUILD_BYPRODUCTS ${RUSTYBITS_LIB} ${RUSTYBITS_INCLUDE_DIR}/rustybits.h
 )
@@ -489,9 +580,12 @@ set(LINKED_LIBRARIES
     nlohmann_json::nlohmann_json
     opentelemetry-cpp::api
     rustybits
-    OpenSSL::Crypto
-    OpenSSL::SSL
 )
+# OpenSSL only where it's actually needed (controller / Linux rustybits); the macOS/
+# Windows daemon links none. See the find_package(OpenSSL) note above.
+if(ZT_NEED_OPENSSL)
+    list(APPEND LINKED_LIBRARIES OpenSSL::Crypto OpenSSL::SSL)
+endif()
 
 # The bundled FileDB network controller (only built when ZT_NONFREE; central
 # backends are layered in under ZT1_CENTRAL_CONTROLLER inside the target).

@@ -14,7 +14,11 @@ set(BUILD_SHARED_LIBS OFF CACHE INTERNAL "")
 set(HTTPLIB_COMPILE OFF CACHE INTERNAL "")
 set(HTTPLIB_USE_ZLIB_IF_AVAILABLE ON CACHE INTERNAL "Use zlib if available")
 set(HTTPLIB_USE_BROTLI_IF_AVAILABLE ON CACHE INTERNAL "Use brotli if available")
-set(HTTPLIB_USE_OPENSSL_IF_AVAILABLE ON CACHE INTERNAL "Use OpenSSL if available")
+# The ZeroTier control plane is plain HTTP on localhost (no httplib SSLServer/SSLClient
+# anywhere), and outbound SSO/OIDC TLS lives in rustybits (native-tls), so httplib never
+# needs OpenSSL. Keeping this ON would link OpenSSL purely as dead weight -- which also
+# blocks universal macOS builds (Homebrew OpenSSL is single-arch).
+set(HTTPLIB_USE_OPENSSL_IF_AVAILABLE OFF CACHE INTERNAL "ZeroTier uses httplib for plain HTTP only")
 set(HTTPLIB_USE_ZSTD_IF_AVAILABLE ON CACHE INTERNAL "Use zstd if available")
 FetchContent_MakeAvailable(cpp-httplib)
 

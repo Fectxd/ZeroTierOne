@@ -41,6 +41,8 @@
     { "name": "macos-controller-debug",   "inherits": "macos-base", "displayName": "macOS Central Controller (Debug)",   "cacheVariables": { "ZT1_CENTRAL_CONTROLLER": "ON", "CMAKE_BUILD_TYPE": "Debug" } },
     { "name": "macos-free-release",       "inherits": "macos-base", "displayName": "macOS daemon, free / no controller (Release)", "cacheVariables": { "ZT_NONFREE": "OFF" } },
     { "name": "macos-free-debug",         "inherits": "macos-base", "displayName": "macOS daemon, free / no controller (Debug)",   "cacheVariables": { "ZT_NONFREE": "OFF", "CMAKE_BUILD_TYPE": "Debug" } },
+    { "name": "macos-universal-release",  "inherits": "macos-base", "displayName": "macOS universal daemon (arm64 + x86_64, Release)", "cacheVariables": { "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64" } },
+    { "name": "macos-universal-debug",    "inherits": "macos-base", "displayName": "macOS universal daemon (arm64 + x86_64, Debug)",   "cacheVariables": { "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64", "CMAKE_BUILD_TYPE": "Debug" } },
 
     {
       "name": "windows-x64",
@@ -101,6 +103,8 @@
     { "name": "macos-controller-debug",   "configurePreset": "macos-controller-debug" },
     { "name": "macos-free-release",       "configurePreset": "macos-free-release" },
     { "name": "macos-free-debug",         "configurePreset": "macos-free-debug" },
+    { "name": "macos-universal-release",  "configurePreset": "macos-universal-release" },
+    { "name": "macos-universal-debug",    "configurePreset": "macos-universal-debug" },
     { "name": "windows-x64-release",        "configurePreset": "windows-x64",        "configuration": "Release" },
     { "name": "windows-x64-debug",          "configurePreset": "windows-x64",        "configuration": "Debug" },
     { "name": "windows-arm64-release",      "configurePreset": "windows-arm64",      "configuration": "Release" },

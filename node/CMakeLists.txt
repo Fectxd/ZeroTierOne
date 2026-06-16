@@ -113,9 +113,22 @@ target_include_directories(zerotier-core
     PRIVATE
         ${prometheus-cpp-lite_INCLUDE}
 )
-target_link_libraries(zerotier-core 
-    PRIVATE 
-    nlohmann_json::nlohmann_json 
-    Threads::Threads 
+target_link_libraries(zerotier-core
+    PRIVATE
+    nlohmann_json::nlohmann_json
+    Threads::Threads
     prometheus-cpp-lite
     Threads::Threads)
+
+# macOS universal: the x64 Salsa20/12 asm must be a single-arch (x86_64) object so it
+# lands only in the x86_64 slice of the fat binary (mirrors make-mac.mk's `as -arch
+# x86_64`). A separate target with OSX_ARCHITECTURES x86_64 does that under a universal
+# configure; Packet.cpp's `ZT_USE_X64_ASM_SALSA2012 && ZT_ARCH_X64` guard keeps the arm64
+# slice from referencing it.
+if(ZT_MACOS_UNIVERSAL_X64_SALSA_ASM)
+    add_library(zt-salsa-x64-asm STATIC ${CMAKE_SOURCE_DIR}/ext/x64-salsa2012-asm/salsa2012.s)
+    set_target_properties(zt-salsa-x64-asm PROPERTIES OSX_ARCHITECTURES "x86_64")
+    set_source_files_properties(${CMAKE_SOURCE_DIR}/ext/x64-salsa2012-asm/salsa2012.s
+        PROPERTIES COMPILE_FLAGS "-x assembler-with-cpp")
+    target_link_libraries(zerotier-core PUBLIC zt-salsa-x64-asm)
+endif()

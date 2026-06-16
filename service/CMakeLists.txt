@@ -11,18 +11,17 @@ set(INCLUDE_DIRS
     ${RUSTYBITS_INCLUDE_DIR}
 )
 
-find_package(OpenSSL REQUIRED)
-
+# No OpenSSL here: the control plane is plain-HTTP cpp-httplib and SSO TLS is in rustybits.
+# The executable links OpenSSL only where actually needed (controller / Linux rustybits)
+# -- see the top-level CMakeLists.
 set(LINK_LIBS
     zerotier-osdep
     zerotier-core
     prometheus-cpp-lite
-    nlohmann_json::nlohmann_json 
+    nlohmann_json::nlohmann_json
     Threads::Threads
     opentelemetry-cpp::api
     Threads::Threads
-    OpenSSL::Crypto
-    OpenSSL::SSL
     rustybits
 )
 
