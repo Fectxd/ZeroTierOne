@@ -52,7 +52,7 @@
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-windows-static",
-        "CMAKE_PREFIX_PATH": "${sourceDir}/.deps"
+        "CMAKE_PREFIX_PATH": "${sourceDir}/.deps/x64"
       }
     },
     {
@@ -60,14 +60,14 @@
       "inherits": "windows-x64",
       "displayName": "Windows ARM64 daemon (MSVC + vcpkg)",
       "architecture": "ARM64",
-      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "arm64-windows-static" }
+      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "arm64-windows-static", "CMAKE_PREFIX_PATH": "${sourceDir}/.deps/ARM64" }
     },
     {
       "name": "windows-x86",
       "inherits": "windows-x64",
       "displayName": "Windows x86 daemon (MSVC + vcpkg)",
       "architecture": "Win32",
-      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "x86-windows-static" }
+      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "x86-windows-static", "CMAKE_PREFIX_PATH": "${sourceDir}/.deps/Win32" }
     },
     {
       "name": "windows-x64-free",

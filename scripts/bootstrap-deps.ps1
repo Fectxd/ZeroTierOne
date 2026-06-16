@@ -1,61 +1,54 @@
 <#
 .SYNOPSIS
-    Build & install the pinned, header-only OpenTelemetry C++ API into a prefix
-    that the CMake build finds via -DCMAKE_PREFIX_PATH. The Windows analog of
-    scripts/bootstrap-deps.sh (its api-only mode).
+    Build & install the pinned, header-only OpenTelemetry C++ API into per-arch
+    prefixes (.deps\<arch>) that the windows-* CMake presets consume. The Windows
+    analog of scripts/bootstrap-deps.sh (its api-only mode).
 
 .DESCRIPTION
     The Windows build is daemon-only -- the Central Controller is NOT supported on
     Windows -- so it needs only the *header-only* OpenTelemetry API, not the SDK,
-    the OTLP exporters, or google-cloud-cpp. The other dependencies come from:
-        * vcpkg  : openssl, nlohmann-json   (vcpkg.json + CMakePresets.json; vcpkg
-                   installs them automatically at configure time)
-        * CMake  : inja, cpp-httplib, miniupnpc/natpmp  (FetchContent)
-    This script provides the one remaining dependency: opentelemetry-cpp (API
-    only), pinned to the SAME version as the Linux/macOS bootstrap so that
-    find_package(opentelemetry-cpp COMPONENTS api) resolves identically on every
-    platform.
+    the OTLP exporters, or google-cloud-cpp. The other dependencies come from vcpkg
+    (openssl, nlohmann-json; per-triplet) and CMake FetchContent (inja, cpp-httplib,
+    miniupnpc/natpmp).
 
-    Prerequisites: git, CMake, and Visual Studio 2022 (for the CMake compiler
-    probe) on PATH; vcpkg installed with VCPKG_ROOT set (for the build itself).
+    opentelemetry-cpp's installed CMake package is *arch-stamped* (its config-version
+    file checks CMAKE_SIZEOF_VOID_P), so a prefix built for one architecture is
+    rejected by a build for another. Each Windows target therefore gets its own
+    prefix under .deps\<arch>, and the windows-* presets point at the matching one.
+
+    With no -Arch, all three (x64, Win32, ARM64) are built; pass -Arch to build one.
+
+    Prerequisites: git, CMake, and the Visual Studio 2022 C++ tools for each target
+    arch on PATH; vcpkg installed with VCPKG_ROOT set (for the main build).
+
+.PARAMETER Arch
+    Target architecture: x64, Win32 (32-bit x86), or ARM64. If omitted, all three are
+    built. ARM64 requires the VS ARM64 C++ build tools (its -A ARM64 probe needs them).
 
 .PARAMETER Prefix
-    Install prefix (default: <repo>\.deps). Pass the same path to CMake via
-    -DCMAKE_PREFIX_PATH (the windows-* CMake presets already point at <repo>\.deps).
+    Override the install prefix (default: <repo>\.deps\<Arch>). Only honored when a
+    single -Arch is given.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File scripts\bootstrap-deps.ps1
-    cmake --preset windows-x64
-    cmake --build --preset windows-x64-release
+    .\scripts\bootstrap-deps.ps1                 # x64 + Win32 + ARM64
+    .\scripts\bootstrap-deps.ps1 -Arch Win32     # just x86  -> cmake --preset windows-x86
 #>
 [CmdletBinding()]
 param(
+    [ValidateSet('x64', 'Win32', 'ARM64')]
+    [string]$Arch,
     [string]$Prefix
 )
 $ErrorActionPreference = 'Stop'
 
 # Keep in sync with OTEL_VERSION in scripts/bootstrap-deps.sh.
 $OtelVersion = 'v1.27.0'
-
-$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-if (-not $Prefix) { $Prefix = Join-Path $RepoRoot '.deps' }
+$RepoRoot  = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $BuildRoot = Join-Path $RepoRoot '.deps-build'
-$OtelSrc   = Join-Path $BuildRoot 'opentelemetry-cpp-src'
-$OtelBuild = Join-Path $BuildRoot 'otel'
+$OtelSrc   = Join-Path $BuildRoot 'opentelemetry-cpp-src'   # arch-independent source clone
 
-New-Item -ItemType Directory -Force -Path $Prefix, $BuildRoot | Out-Null
-Write-Host "==> Bootstrapping pinned deps into: $Prefix"
-if (-not $env:VCPKG_ROOT) {
-    Write-Warning "VCPKG_ROOT is not set. openssl/nlohmann-json come from vcpkg at configure time; set VCPKG_ROOT before running CMake."
-}
-
-# --- opentelemetry-cpp (API only, header-only) --------------------------------
-if ((Test-Path (Join-Path $Prefix 'lib\cmake\opentelemetry-cpp')) -or
-    (Test-Path (Join-Path $Prefix 'lib64\cmake\opentelemetry-cpp'))) {
-    Write-Host "==> opentelemetry-cpp already installed in prefix, skipping"
-    Write-Host "    (delete $Prefix to rebuild)"
-} else {
-    # Re-clone if the existing checkout isn't the pinned tag (handles a version bump).
+function Initialize-OtelSource {
+    # Clone (or re-fetch on a tag change) the OTel source. Idempotent; safe to call per arch.
     if (Test-Path (Join-Path $OtelSrc '.git')) {
         $tag = (git -C $OtelSrc describe --tags --exact-match 2>$null)
         if ($tag -ne $OtelVersion) {
@@ -69,24 +62,60 @@ if ((Test-Path (Join-Path $Prefix 'lib\cmake\opentelemetry-cpp')) -or
             https://github.com/open-telemetry/opentelemetry-cpp.git $OtelSrc
         if ($LASTEXITCODE -ne 0) { throw "git clone failed" }
     }
+}
 
-    # Header-only API: quick, no SDK/exporters, no abseil/protobuf/grpc.
-    Write-Host "==> Building opentelemetry-cpp (API only)"
-    cmake -S $OtelSrc -B $OtelBuild `
-        -DCMAKE_BUILD_TYPE=Release `
-        -DCMAKE_INSTALL_PREFIX="$Prefix" `
-        -DBUILD_TESTING=OFF `
-        -DOPENTELEMETRY_INSTALL=ON `
-        -DWITH_API_ONLY=ON
+function Build-OtelApi {
+    param([Parameter(Mandatory)][string]$TargetArch, [string]$InstallPrefix)
+    if (-not $InstallPrefix) { $InstallPrefix = Join-Path $RepoRoot ".deps\$TargetArch" }
+    $otelBuild = Join-Path $BuildRoot "otel-$TargetArch"
+    New-Item -ItemType Directory -Force -Path $InstallPrefix | Out-Null
+
+    if ((Test-Path (Join-Path $InstallPrefix 'lib\cmake\opentelemetry-cpp')) -or
+        (Test-Path (Join-Path $InstallPrefix 'lib64\cmake\opentelemetry-cpp'))) {
+        Write-Host "==> [$TargetArch] opentelemetry-cpp already installed, skipping (delete $InstallPrefix to rebuild)"
+        return
+    }
+    Initialize-OtelSource
+
+    # Header-only API: quick, no SDK/exporters. -A stamps the package config for $TargetArch.
+    Write-Host "==> [$TargetArch] Building opentelemetry-cpp (API only) -> $InstallPrefix"
+    cmake -S $OtelSrc -B $otelBuild -G "Visual Studio 17 2022" -A $TargetArch `
+        -DCMAKE_INSTALL_PREFIX="$InstallPrefix" `
+        -DBUILD_TESTING=OFF -DOPENTELEMETRY_INSTALL=ON -DWITH_API_ONLY=ON
     if ($LASTEXITCODE -ne 0) { throw "cmake configure (otel) failed" }
-    cmake --build $OtelBuild --config Release
+    cmake --build $otelBuild --config Release
     if ($LASTEXITCODE -ne 0) { throw "cmake build (otel) failed" }
-    cmake --install $OtelBuild --config Release
+    cmake --install $otelBuild --config Release
     if ($LASTEXITCODE -ne 0) { throw "cmake install (otel) failed" }
 }
 
+# ---- main --------------------------------------------------------------------
+New-Item -ItemType Directory -Force -Path $BuildRoot | Out-Null
+if (-not $env:VCPKG_ROOT) {
+    Write-Warning "VCPKG_ROOT is not set. openssl/nlohmann-json come from vcpkg at configure time; set VCPKG_ROOT before running CMake."
+}
+
+$targets = if ($Arch) { @($Arch) } else { @('x64', 'Win32', 'ARM64') }
+if ($Prefix -and $targets.Count -gt 1) {
+    Write-Warning "-Prefix is ignored when building multiple architectures; using .deps\<arch> for each."
+    $Prefix = $null
+}
+Write-Host "==> Bootstrapping pinned deps for: $($targets -join ', ')"
+
+$failed = @()
+foreach ($a in $targets) {
+    try { Build-OtelApi -TargetArch $a -InstallPrefix $Prefix }
+    catch { Write-Warning "[$a] $($_.Exception.Message)"; $failed += $a }
+}
+
+$presetOf = @{ 'x64' = 'windows-x64'; 'Win32' = 'windows-x86'; 'ARM64' = 'windows-arm64' }
+$built = @($targets | Where-Object { $_ -notin $failed })
 Write-Host ""
-Write-Host "==> Done. Build the Windows daemon with:"
-Write-Host "    cmake --preset windows-x64"
-Write-Host "    cmake --build --preset windows-x64-release"
-Write-Host "(the windows-* presets set CMAKE_PREFIX_PATH to <repo>\.deps and the vcpkg toolchain)"
+Write-Host "==> Done. Built: $($built -join ', ')"
+foreach ($a in $built) {
+    Write-Host ("    {0,-6} -> cmake --preset {1}  ;  cmake --build --preset {1}-release" -f $a, $presetOf[$a])
+}
+if ($failed.Count -gt 0) {
+    Write-Warning ("Failed: " + ($failed -join ', ') + ". (ARM64 needs the Visual Studio ARM64 C++ build tools installed.)")
+    if ($failed.Count -eq $targets.Count) { exit 1 }
+}
