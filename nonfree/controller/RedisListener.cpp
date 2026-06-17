@@ -7,6 +7,7 @@
 #include "RedisListener.hpp"
 
 #include "../../node/Metrics.hpp"
+#include "CtlUtil.hpp"
 #include "nlohmann/json.hpp"
 #include "opentelemetry/trace/provider.h"
 
@@ -114,10 +115,10 @@ void RedisNetworkListener::listen()
 								}
 							}
 							catch (const nlohmann::json::parse_error& e) {
-								fprintf(stderr, "JSON parse error: %s\n", e.what());
+								ZTC_LOG("JSON parse error: %s\n", e.what());
 							}
 							catch (const std::exception& e) {
-								fprintf(stderr, "Exception in Redis network listener: %s\n", e.what());
+								ZTC_LOG("Exception in Redis network listener: %s\n", e.what());
 							}
 						}
 						if (_is_cluster) {
@@ -133,10 +134,10 @@ void RedisNetworkListener::listen()
 			}
 		}
 		catch (sw::redis::Error& e) {
-			fprintf(stderr, "Error in Redis network listener: %s\n", e.what());
+			ZTC_LOG("Error in Redis network listener: %s\n", e.what());
 		}
 		catch (const std::exception& e) {
-			fprintf(stderr, "Exception in Redis network listener: %s\n", e.what());
+			ZTC_LOG("Exception in Redis network listener: %s\n", e.what());
 		}
 	}
 }
@@ -173,7 +174,7 @@ void RedisMemberListener::listen()
 {
 	std::string key = "member-stream:{" + _controller_id + "}";
 	std::string lastID = "0";
-	fprintf(stderr, "Listening to Redis member stream: %s\n", key.c_str());
+	ZTC_LOG("Listening to Redis member stream: %s\n", key.c_str());
 	while (_run) {
 		auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 		auto tracer = provider->GetTracer("RedisMemberListener");
@@ -211,10 +212,10 @@ void RedisMemberListener::listen()
 								}
 							}
 							catch (const nlohmann::json::parse_error& e) {
-								fprintf(stderr, "JSON parse error: %s\n", e.what());
+								ZTC_LOG("JSON parse error: %s\n", e.what());
 							}
 							catch (const std::exception& e) {
-								fprintf(stderr, "Exception in Redis member listener: %s\n", e.what());
+								ZTC_LOG("Exception in Redis member listener: %s\n", e.what());
 							}
 						}
 						if (_is_cluster) {
@@ -230,10 +231,10 @@ void RedisMemberListener::listen()
 			}
 		}
 		catch (sw::redis::Error& e) {
-			fprintf(stderr, "Error in Redis member listener: %s\n", e.what());
+			ZTC_LOG("Error in Redis member listener: %s\n", e.what());
 		}
 		catch (const std::exception& e) {
-			fprintf(stderr, "Exception in Redis member listener: %s\n", e.what());
+			ZTC_LOG("Exception in Redis member listener: %s\n", e.what());
 		}
 	}
 }

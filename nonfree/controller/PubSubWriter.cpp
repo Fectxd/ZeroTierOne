@@ -34,7 +34,7 @@ PubSubWriter::PubSubWriter(std::string project, std::string topic, std::string c
 	, _project(project)
 	, _topic(topic)
 {
-	fprintf(stderr, "PubSubWriter for controller %s project %s topic %s\n", controller_id.c_str(), project.c_str(),
+	ZTC_LOG("PubSubWriter for controller %s project %s topic %s\n", controller_id.c_str(), project.c_str(),
 			topic.c_str());
 	GOOGLE_PROTOBUF_VERIFY_VERSION;
 
@@ -92,8 +92,7 @@ bool PubSubWriter::publishMessage(const std::string& payload,
 	auto message_id = _publisher->Publish(std::move(msg)).get();
 	if (! message_id) {
 		auto status = std::move(message_id).status();
-		fprintf(stderr, "Failed to publish message (ordering_key=%s): %s\n", orderingKey.c_str(),
-				status.message().c_str());
+		ZTC_LOG("Failed to publish message (ordering_key=%s): %s\n", orderingKey.c_str(), status.message().c_str());
 		if (! orderingKey.empty()) {
 			// Message ordering is enabled (MessageOrderingOption(true)), so a failed publish
 			// permanently rejects every subsequent message for this ordering key until
@@ -124,7 +123,7 @@ bool PubSubWriter::publishNetworkChange(const nlohmann::json& oldNetwork,
 
 	std::string payload;
 	if (! nc->SerializeToString(&payload)) {
-		fprintf(stderr, "Failed to serialize NetworkChange protobuf message\n");
+		ZTC_LOG("Failed to serialize NetworkChange protobuf message\n");
 		delete nc;
 		return false;
 	}
@@ -147,7 +146,7 @@ bool PubSubWriter::publishMemberChange(const nlohmann::json& oldMember,
 
 	std::string payload;
 	if (! mc->SerializeToString(&payload)) {
-		fprintf(stderr, "Failed to serialize MemberChange protobuf message\n");
+		ZTC_LOG("Failed to serialize MemberChange protobuf message\n");
 		delete mc;
 		return false;
 	}
@@ -184,7 +183,7 @@ bool PubSubWriter::publishStatusChange(std::string frontend,
 
 	std::string payload;
 	if (! ms.SerializeToString(&payload)) {
-		fprintf(stderr, "Failed to serialize StatusChange protobuf message\n");
+		ZTC_LOG("Failed to serialize StatusChange protobuf message\n");
 		return false;
 	}
 
@@ -214,7 +213,7 @@ bool PubSubWriter::publishSSONonceUpdate(const std::string& nonce,
 
 	std::string payload;
 	if (! msg.SerializeToString(&payload)) {
-		fprintf(stderr, "Failed to serialize SSOUpdate protobuf message\n");
+		ZTC_LOG("Failed to serialize SSOUpdate protobuf message\n");
 		return false;
 	}
 
@@ -314,7 +313,7 @@ pbmessages::NetworkChange_Network* networkFromJson(const nlohmann::json& j)
 		n->set_rules_source(OSUtils::jsonString(j["rulesSource"], ""));
 	}
 	catch (const std::exception& e) {
-		fprintf(stderr, "Exception parsing network JSON: %s\n", e.what());
+		ZTC_LOG("Exception parsing network JSON: %s\n", e.what());
 		delete n;
 		return nullptr;
 	}
@@ -398,7 +397,7 @@ pbmessages::MemberChange_Member* memberFromJson(const nlohmann::json& j)
 		m->set_auth_expiry_time(OSUtils::jsonInt(j["authenticationExpiryTime"], 0));
 	}
 	catch (const std::exception& e) {
-		fprintf(stderr, "Exception parsing member JSON: %s\n", e.what());
+		ZTC_LOG("Exception parsing member JSON: %s\n", e.what());
 		delete m;
 		return nullptr;
 	}

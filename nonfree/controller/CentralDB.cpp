@@ -82,19 +82,19 @@ CentralDB::CentralDB(const Identity& myId,
 	memset(_ssoPsk, 0, sizeof(_ssoPsk));
 	char* const ssoPskHex = getenv("ZT_SSO_PSK");
 #ifdef ZT_TRACE
-	fprintf(stderr, "ZT_SSO_PSK: %s\n", ssoPskHex);
+	ZTC_LOG("ZT_SSO_PSK: %s\n", ssoPskHex);
 #endif
 	if (ssoPskHex) {
 		// SECURITY: note that ssoPskHex will always be null-terminated if libc actually
 		// returns something non-NULL. If the hex encodes something shorter than 48 bytes,
 		// it will be padded at the end with zeroes. If longer, it'll be truncated.
 		Utils::unhex(ssoPskHex, _ssoPsk, sizeof(_ssoPsk));
-		fprintf(stderr, "SSO PSK configured\n");
+		ZTC_LOG("SSO PSK configured\n");
 	}
 	const char* redisMemberStatus = getenv("ZT_REDIS_MEMBER_STATUS");
 	if (redisMemberStatus && (strcmp(redisMemberStatus, "true") == 0)) {
 		_redisMemberStatus = true;
-		fprintf(stderr, "Using redis for member status\n");
+		ZTC_LOG("Using redis for member status\n");
 	}
 
 	if ((listenMode == LISTENER_MODE_REDIS || statusMode == STATUS_WRITER_MODE_REDIS) && _cc->redisConfig != NULL) {
@@ -115,18 +115,17 @@ CentralDB::CentralDB(const Identity& myId,
 		poolOpts.connection_idle_time = std::chrono::minutes(1);
 		if (_cc->redisConfig->clusterMode) {
 			innerspan->SetAttribute("cluster_mode", "true");
-			fprintf(stderr, "Using Redis in Cluster Mode\n");
+			ZTC_LOG("Using Redis in Cluster Mode\n");
 			_cluster = std::make_shared<sw::redis::RedisCluster>(opts, poolOpts);
 		}
 		else {
 			innerspan->SetAttribute("cluster_mode", "false");
-			fprintf(stderr, "Using Redis in Standalone Mode\n");
+			ZTC_LOG("Using Redis in Standalone Mode\n");
 			_redis = std::make_shared<sw::redis::Redis>(opts, poolOpts);
 		}
 	}
 
-	fprintf(stderr, "[%s] NOTICE: %.10llx controller PostgreSQL waiting for initial data download..." ZT_EOL_S,
-			::_timestr(), (unsigned long long)_myAddress.toInt());
+	ZTC_LOG("NOTICE: PostgreSQL waiting for initial data download..." ZT_EOL_S);
 	_waitNoticePrinted = true;
 
 	initializeNetworks();
@@ -136,7 +135,7 @@ CentralDB::CentralDB(const Identity& myId,
 
 	switch (listenMode) {
 		case LISTENER_MODE_REDIS:
-			fprintf(stderr, "Using Redis for change listeners\n");
+			ZTC_LOG("Using Redis for change listeners\n");
 			if (_cc->redisConfig != NULL) {
 				std::shared_ptr<RedisMemberListener> memberListener;
 				std::shared_ptr<RedisNetworkListener> networkListener;
@@ -163,7 +162,7 @@ CentralDB::CentralDB(const Identity& myId,
 			}
 			break;
 		case LISTENER_MODE_PUBSUB:
-			fprintf(stderr, "Using PubSub for change listeners\n");
+			ZTC_LOG("Using PubSub for change listeners\n");
 			if (cc->pubSubConfig != NULL) {
 				_membersDbWatcher = std::make_shared<PubSubMemberListener>(
 					_myAddressStr, cc->pubSubConfig->project_id, cc->pubSubConfig->member_change_recv_topic, this);
@@ -188,7 +187,7 @@ CentralDB::CentralDB(const Identity& myId,
 			break;
 		case LISTENER_MODE_PGSQL:
 		default:
-			fprintf(stderr, "Using PostgreSQL for change listeners\n");
+			ZTC_LOG("Using PostgreSQL for change listeners\n");
 			_membersDbWatcher = std::make_shared<PostgresMemberListener>(this, _pool, "member_" + _myAddressStr, 5);
 			_networksDbWatcher = std::make_shared<PostgresNetworkListener>(this, _pool, "network_" + _myAddressStr, 5);
 			break;
@@ -197,7 +196,7 @@ CentralDB::CentralDB(const Identity& myId,
 	std::shared_ptr<PubSubWriter> pubsubWriter;
 	switch (statusMode) {
 		case STATUS_WRITER_MODE_REDIS:
-			fprintf(stderr, "Using Redis for status writer\n");
+			ZTC_LOG("Using Redis for status writer\n");
 			if (_cc->redisConfig != NULL) {
 				if (_cc->redisConfig->clusterMode) {
 					_statusWriter = std::make_shared<RedisStatusWriter>(_cluster, _myAddressStr);
@@ -211,7 +210,7 @@ CentralDB::CentralDB(const Identity& myId,
 			}
 			break;
 		case STATUS_WRITER_MODE_BIGTABLE:
-			fprintf(stderr, "Using BigTable for status writer\n");
+			ZTC_LOG("Using BigTable for status writer\n");
 			if (cc->bigTableConfig == NULL) {
 				throw std::runtime_error(
 					"CentralDB: BigTable status mode selected but no BigTable configuration provided");
@@ -226,7 +225,7 @@ CentralDB::CentralDB(const Identity& myId,
 			break;
 		case STATUS_WRITER_MODE_PGSQL:
 		default:
-			fprintf(stderr, "Using PostgreSQL for status writer\n");
+			ZTC_LOG("Using PostgreSQL for status writer\n");
 			_statusWriter = std::make_shared<PostgresStatusWriter>(_pool);
 			break;
 	}
@@ -273,7 +272,7 @@ bool CentralDB::save(nlohmann::json& record, bool notifyListeners)
 	bool modified = false;
 	try {
 		if (! record.is_object()) {
-			fprintf(stderr, "record is not an object?!?\n");
+			ZTC_LOG("record is not an object?!?\n");
 			return false;
 		}
 		const std::string objtype = OSUtils::jsonString(record["objtype"], "");
@@ -330,14 +329,14 @@ bool CentralDB::save(nlohmann::json& record, bool notifyListeners)
 			}
 		}
 		else {
-			fprintf(stderr, "uhh waaat\n");
+			ZTC_LOG("uhh waaat\n");
 		}
 	}
 	catch (std::exception& e) {
-		fprintf(stderr, "Error on CentralDB::save: %s\n", e.what());
+		ZTC_LOG("Error on CentralDB::save: %s\n", e.what());
 	}
 	catch (...) {
-		fprintf(stderr, "Unknown error on CentralDB::save\n");
+		ZTC_LOG("Unknown error on CentralDB::save\n");
 	}
 	return modified;
 }
@@ -518,7 +517,7 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 					else {
 						// > 1 unused nonce is a data anomaly (e.g. a race inserting nonces).
 						// Abort and bail out gracefully rather than killing the controller process.
-						fprintf(stderr, "> 1 unused nonce for network member!\n");
+						ZTC_LOG("> 1 unused nonce for network member!\n");
 						span->SetStatus(opentelemetry::trace::StatusCode::kError, "more than one unused nonce");
 						w.abort();
 						return AuthInfo();
@@ -531,7 +530,7 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 				else {
 					// more than 1 active nonce is a data anomaly. Abort and bail out
 					// gracefully rather than killing the controller process.
-					fprintf(stderr, "> 1 nonce in use for network member?!?\n");
+					ZTC_LOG("> 1 nonce in use for network member?!?\n");
 					span->SetStatus(opentelemetry::trace::StatusCode::kError, "more than one active nonce");
 					w.abort();
 					return AuthInfo();
@@ -560,11 +559,11 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 					sso_version = r.at(0)[4].as<std::optional<uint64_t> >().value_or(1);
 				}
 				else if (r.size() > 1) {
-					fprintf(stderr, "ERROR: More than one auth endpoint for an organization?!?!? NetworkID: %s\n",
+					ZTC_LOG("ERROR: More than one auth endpoint for an organization?!?!? NetworkID: %s\n",
 							networkId.c_str());
 				}
 				else {
-					fprintf(stderr, "No client or auth endpoint?!?\n");
+					ZTC_LOG("No client or auth endpoint?!?\n");
 				}
 
 				info.version = sso_version;
@@ -580,8 +579,8 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 				if (ssoRedirectURL.empty()) {
 					span->SetStatus(opentelemetry::trace::StatusCode::kError,
 									"no SSO redirect URL configured for frontend");
-					fprintf(stderr, "ERROR: no SSO redirect URL configured for frontend '%s' of network %s\n",
-							frontend.c_str(), networkId.c_str());
+					ZTC_LOG("ERROR: no SSO redirect URL configured for frontend '%s' of network %s\n", frontend.c_str(),
+							networkId.c_str());
 				}
 				// no catch all else because we don't actually care if no records exist here. just continue as normal.
 				else if ((! client_id.empty()) && (! authorization_endpoint.empty())) {
@@ -618,7 +617,7 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 					}
 				}
 				else {
-					fprintf(stderr, "client_id: %s\nauthorization_endpoint: %s\n", client_id.c_str(),
+					ZTC_LOG("client_id: %s\nauthorization_endpoint: %s\n", client_id.c_str(),
 							authorization_endpoint.c_str());
 				}
 			}
@@ -627,7 +626,7 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 		}
 		catch (std::exception& e) {
 			span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-			fprintf(stderr, "ERROR: Error updating member on load for network %s: %s\n", networkId.c_str(), e.what());
+			ZTC_LOG("ERROR: Error updating member on load for network %s: %s\n", networkId.c_str(), e.what());
 		}
 
 		return info;   // std::string(authenticationURL);
@@ -642,7 +641,7 @@ void CentralDB::initializeNetworks()
 	auto span = tracer->StartSpan("CentralDB::initializeNetworks");
 	auto scope = tracer->WithActiveSpan(span);
 
-	fprintf(stderr, "Initializing networks...\n");
+	ZTC_LOG("Initializing networks...\n");
 
 	try {
 		char qbuf[2048];
@@ -655,7 +654,7 @@ void CentralDB::initializeNetworks()
 		PooledConnection<PostgresConnection> c(_pool);
 		pqxx::work w(*c->c);
 
-		fprintf(stderr, "Load networks from psql...\n");
+		ZTC_LOG("Load networks from psql...\n");
 		auto stream = pqxx::stream_from::query(w, qbuf);
 		std::tuple<std::string	 // network ID
 				   ,
@@ -754,26 +753,25 @@ void CentralDB::initializeNetworks()
 			total += dur.count();
 			++count;
 			if (count > 0 && count % 10000 == 0) {
-				fprintf(stderr, "Averaging %lu us per network\n", (total / count));
+				ZTC_LOG("Averaging %llu us per network\n", (unsigned long long)(total / count));
 			}
 		}
 
 		w.commit();
 		// c (PooledConnection) returns the connection to the pool on scope exit.
-		fprintf(stderr, "done.\n");
+		ZTC_LOG("done.\n");
 
 		if (++this->_ready == 2) {
 			if (_waitNoticePrinted) {
-				fprintf(stderr, "[%s] NOTICE: %.10llx controller PostgreSQL data download complete." ZT_EOL_S,
-						_timestr(), (unsigned long long)_myAddress.toInt());
+				ZTC_LOG("NOTICE: PostgreSQL data download complete." ZT_EOL_S);
 			}
 			std::lock_guard<std::mutex> l(_readyLock);
 			_readyCv.notify_all();
 		}
-		fprintf(stderr, "network init done\n");
+		ZTC_LOG("network init done\n");
 	}
 	catch (std::exception& e) {
-		fprintf(stderr, "ERROR: Error initializing networks: %s\n", e.what());
+		ZTC_LOG("ERROR: Error initializing networks: %s\n", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 		std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 		exit(-1);
@@ -791,12 +789,12 @@ void CentralDB::initializeMembers()
 	std::string networkId;
 	try {
 		std::unordered_map<std::string, std::string> networkMembers;
-		fprintf(stderr, "Initializing Members...\n");
+		ZTC_LOG("Initializing Members...\n");
 
 		std::string setKeyBase = "network-nodes-all:{" + _myAddressStr + "}:";
 
 		if (_redisMemberStatus) {
-			fprintf(stderr, "Initialize Redis for members...\n");
+			ZTC_LOG("Initialize Redis for members...\n");
 			std::unique_lock<std::shared_mutex> l(_networks_l);
 			std::unordered_set<std::string> deletes;
 			for (auto it : _networks) {
@@ -849,7 +847,7 @@ void CentralDB::initializeMembers()
 
 		PooledConnection<PostgresConnection> c(_pool);
 		pqxx::work w(*c->c);
-		fprintf(stderr, "Load members from psql...\n");
+		ZTC_LOG("Load members from psql...\n");
 		auto stream = pqxx::stream_from::query(w, qbuf);
 		std::tuple<std::string	 // device ID
 				   ,
@@ -971,23 +969,23 @@ void CentralDB::initializeMembers()
 			total += dur.count();
 			++count;
 			if (count > 0 && count % 10000 == 0) {
-				fprintf(stderr, "Averaging %llu us per member\n", (total / count));
+				ZTC_LOG("Averaging %llu us per member\n", (unsigned long long)(total / count));
 			}
 		}
 		if (count > 0) {
-			fprintf(stderr, "Took %llu us per member to load\n", (total / count));
+			ZTC_LOG("Took %llu us per member to load\n", (unsigned long long)(total / count));
 		}
 
 		stream.complete();
 
 		w.commit();
 		// c (PooledConnection) returns the connection to the pool on scope exit.
-		fprintf(stderr, "done.\n");
+		ZTC_LOG("done.\n");
 
 		if (_listenerMode == LISTENER_MODE_REDIS)
 			if (! networkMembers.empty()) {
 				if (_redisMemberStatus) {
-					fprintf(stderr, "Load member data into redis...\n");
+					ZTC_LOG("Load member data into redis...\n");
 					if (_cc->redisConfig->clusterMode) {
 						auto tx = _cluster->transaction(_myAddressStr, true, false);
 						uint64_t count = 0;
@@ -1012,16 +1010,15 @@ void CentralDB::initializeMembers()
 						}
 						tx.exec();
 					}
-					fprintf(stderr, "done.\n");
+					ZTC_LOG("done.\n");
 				}
 			}
 
-		fprintf(stderr, "Done loading members...\n");
+		ZTC_LOG("Done loading members...\n");
 
 		if (++this->_ready == 2) {
 			if (_waitNoticePrinted) {
-				fprintf(stderr, "[%s] NOTICE: %.10llx controller PostgreSQL data download complete." ZT_EOL_S,
-						_timestr(), (unsigned long long)_myAddress.toInt());
+				ZTC_LOG("NOTICE: PostgreSQL data download complete." ZT_EOL_S);
 			}
 			std::lock_guard<std::mutex> l(_readyLock);
 			_readyCv.notify_all();
@@ -1029,12 +1026,12 @@ void CentralDB::initializeMembers()
 	}
 	catch (sw::redis::Error& e) {
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-		fprintf(stderr, "ERROR: Error initializing members (redis): %s\n", e.what());
+		ZTC_LOG("ERROR: Error initializing members (redis): %s\n", e.what());
 		exit(-1);
 	}
 	catch (std::exception& e) {
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-		fprintf(stderr, "ERROR: Error initializing member: %s-%s %s\n", networkId.c_str(), memberId.c_str(), e.what());
+		ZTC_LOG("ERROR: Error initializing member: %s-%s %s\n", networkId.c_str(), memberId.c_str(), e.what());
 		exit(-1);
 	}
 }
@@ -1090,7 +1087,7 @@ void CentralDB::heartbeat()
 				w.commit();
 			}
 			catch (std::exception& e) {
-				fprintf(stderr, "%s: Heartbeat update failed: %s\n", controllerId, e.what());
+				ZTC_LOG("Heartbeat update failed: %s\n", e.what());
 				c.unborrow();
 				span->End();
 				std::this_thread::sleep_for(std::chrono::milliseconds(1000));
@@ -1110,13 +1107,13 @@ void CentralDB::heartbeat()
 			}
 		}
 		catch (sw::redis::Error& e) {
-			fprintf(stderr, "ERROR: Redis error in heartbeat thread: %s\n", e.what());
+			ZTC_LOG("ERROR: Redis error in heartbeat thread: %s\n", e.what());
 		}
 
 		span->End();
 		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 	}
-	fprintf(stderr, "Exited heartbeat thread\n");
+	ZTC_LOG("Exited heartbeat thread\n");
 }
 
 void CentralDB::_requeueFailedCommit(_queueItem& qitem)
@@ -1131,7 +1128,7 @@ void CentralDB::_requeueFailedCommit(_queueItem& qitem)
 		return;
 	}
 	if (qitem.retryCount >= ZT_CENTRAL_CONTROLLER_MAX_COMMIT_RETRIES) {
-		fprintf(stderr, "%s ERROR: dropping %s change after %d failed commit attempts\n", _myAddressStr.c_str(),
+		ZTC_LOG("ERROR: dropping %s change after %d failed commit attempts\n",
 				OSUtils::jsonString(qitem.jsonData["objtype"], "?").c_str(), qitem.retryCount);
 		return;
 	}
@@ -1155,7 +1152,7 @@ void CentralDB::_requeueFailedCommit(_queueItem& qitem)
 
 void CentralDB::commitThread()
 {
-	fprintf(stderr, "%s: commitThread start\n", _myAddressStr.c_str());
+	ZTC_LOG("commitThread start\n");
 	_queueItem qitem;
 	while (_commitQueue.get(qitem) && (_run == 1)) {
 		auto provider = opentelemetry::trace::Provider::GetTracerProvider();
@@ -1173,7 +1170,7 @@ void CentralDB::commitThread()
 			auto scope = tracer->WithActiveSpan(span);
 
 			if (! qitem.jsonData.is_object()) {
-				fprintf(stderr, "commitThread tick: skipping non-object queue item\n");
+				ZTC_LOG("commitThread tick: skipping non-object queue item\n");
 				continue;
 			}
 
@@ -1187,9 +1184,9 @@ void CentralDB::commitThread()
 			span->SetAttribute("nwid", tickNwid);
 			span->SetAttribute("id", tickId);
 			span->SetAttribute("retry", qitem.retryCount);
-			fprintf(stderr, "%s commitThread tick: objtype=%s nwid=%s id=%s retry=%d notify=%d\n",
-					_myAddressStr.c_str(), tickObjtype.c_str(), tickNwid.empty() ? "-" : tickNwid.c_str(),
-					tickId.empty() ? "-" : tickId.c_str(), qitem.retryCount, qitem.notifyListeners ? 1 : 0);
+			ZTC_LOG("commitThread tick: objtype=%s nwid=%s id=%s retry=%d notify=%d\n", tickObjtype.c_str(),
+					tickNwid.empty() ? "-" : tickNwid.c_str(), tickId.empty() ? "-" : tickId.c_str(), qitem.retryCount,
+					qitem.notifyListeners ? 1 : 0);
 
 			bool commitFailed = false;
 
@@ -1198,13 +1195,13 @@ void CentralDB::commitThread()
 				c = _pool->borrow();
 			}
 			catch (std::exception& e) {
-				fprintf(stderr, "ERROR: %s\n", e.what());
+				ZTC_LOG("ERROR: %s\n", e.what());
 				_requeueFailedCommit(qitem);
 				continue;
 			}
 
 			if (! c) {
-				fprintf(stderr, "Error getting database connection\n");
+				ZTC_LOG("Error getting database connection\n");
 				_requeueFailedCommit(qitem);
 				continue;
 			}
@@ -1244,7 +1241,7 @@ void CentralDB::commitThread()
 						std::string frontend = nwrow[1].as<std::string>();
 
 						if (nwcount != 1) {
-							fprintf(stderr, "network %s does not exist.  skipping member upsert\n", networkId.c_str());
+							ZTC_LOG("network %s does not exist.  skipping member upsert\n", networkId.c_str());
 							w.abort();
 							_pool->unborrow(c);
 							continue;
@@ -1379,14 +1376,13 @@ void CentralDB::commitThread()
 							_memberChanged(memOrig, memNew, qitem.notifyListeners);
 						}
 						else {
-							fprintf(stderr, "%s: Can't notify of change.  Error parsing nwid or memberid: %llu-%llu\n",
-									_myAddressStr.c_str(), (unsigned long long)nwidInt,
-									(unsigned long long)memberidInt);
+							ZTC_LOG("Can't notify of change.  Error parsing nwid or memberid: %llu-%llu\n",
+									(unsigned long long)nwidInt, (unsigned long long)memberidInt);
 						}
 					}
 					catch (std::exception& e) {
-						fprintf(stderr, "%s ERROR: Error updating member %s-%s: %s\n", _myAddressStr.c_str(),
-								networkId.c_str(), memberId.c_str(), e.what());
+						ZTC_LOG("ERROR: Error updating member %s-%s: %s\n", networkId.c_str(), memberId.c_str(),
+								e.what());
 						mspan->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 						commitFailed = true;
 					}
@@ -1468,13 +1464,12 @@ void CentralDB::commitThread()
 							_networkChanged(nwOrig, nwNew, qitem.notifyListeners);
 						}
 						else {
-							fprintf(stderr, "%s: Can't notify network changed: %llu\n", _myAddressStr.c_str(),
-									(unsigned long long)nwidInt);
+							ZTC_LOG("Can't notify network changed: %llu\n", (unsigned long long)nwidInt);
 						}
 					}
 					catch (std::exception& e) {
 						nspan->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-						fprintf(stderr, "%s ERROR: Error updating network: %s\n", _myAddressStr.c_str(), e.what());
+						ZTC_LOG("ERROR: Error updating network: %s\n", e.what());
 						commitFailed = true;
 					}
 					if (_listenerMode == LISTENER_MODE_REDIS && _redisMemberStatus) {
@@ -1491,7 +1486,7 @@ void CentralDB::commitThread()
 						}
 						catch (sw::redis::Error& e) {
 							nspan->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-							fprintf(stderr, "ERROR: Error adding network to Redis: %s\n", e.what());
+							ZTC_LOG("ERROR: Error adding network to Redis: %s\n", e.what());
 						}
 					}
 				}
@@ -1516,7 +1511,7 @@ void CentralDB::commitThread()
 					}
 					catch (std::exception& e) {
 						dspan->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-						fprintf(stderr, "%s ERROR: Error deleting network: %s\n", _myAddressStr.c_str(), e.what());
+						ZTC_LOG("ERROR: Error deleting network: %s\n", e.what());
 						commitFailed = true;
 					}
 					if (_listenerMode == LISTENER_MODE_REDIS && _redisMemberStatus) {
@@ -1535,7 +1530,7 @@ void CentralDB::commitThread()
 						}
 						catch (sw::redis::Error& e) {
 							dspan->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-							fprintf(stderr, "ERROR: Error adding network to Redis: %s\n", e.what());
+							ZTC_LOG("ERROR: Error adding network to Redis: %s\n", e.what());
 						}
 					}
 				}
@@ -1569,7 +1564,7 @@ void CentralDB::commitThread()
 					}
 					catch (std::exception& e) {
 						mspan->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-						fprintf(stderr, "%s ERROR: Error deleting member: %s\n", _myAddressStr.c_str(), e.what());
+						ZTC_LOG("ERROR: Error deleting member: %s\n", e.what());
 						commitFailed = true;
 					}
 					if (_listenerMode == LISTENER_MODE_REDIS && _redisMemberStatus) {
@@ -1589,17 +1584,17 @@ void CentralDB::commitThread()
 						}
 						catch (sw::redis::Error& e) {
 							mspan->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-							fprintf(stderr, "ERROR: Error deleting member from Redis: %s\n", e.what());
+							ZTC_LOG("ERROR: Error deleting member from Redis: %s\n", e.what());
 						}
 					}
 				}
 				else {
-					fprintf(stderr, "%s ERROR: unknown objtype\n", _myAddressStr.c_str());
+					ZTC_LOG("ERROR: unknown objtype\n");
 				}
 			}
 			catch (std::exception& e) {
 				span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-				fprintf(stderr, "%s ERROR: Error getting objtype: %s\n", _myAddressStr.c_str(), e.what());
+				ZTC_LOG("ERROR: Error getting objtype: %s\n", e.what());
 				commitFailed = true;
 			}
 			_pool->unborrow(c);
@@ -1613,7 +1608,7 @@ void CentralDB::commitThread()
 		}
 	}
 
-	fprintf(stderr, "%s commitThread finished\n", _myAddressStr.c_str());
+	ZTC_LOG("commitThread finished\n");
 }
 
 void CentralDB::onlineNotificationThread()
@@ -1687,12 +1682,12 @@ void CentralDB::onlineNotificationThread()
 													ts, frontend);
 					writtenCount++;
 				}
-				fprintf(stderr, "onlineNotificationThread: %llu entries in lastOnline, %llu passed to status writer\n",
+				ZTC_LOG("onlineNotificationThread: %llu entries in lastOnline, %llu passed to status writer\n",
 						(unsigned long long)lastOnline.size(), (unsigned long long)writtenCount);
 				_statusWriter->writePending();
 			}
 			catch (std::exception& e) {
-				fprintf(stderr, "%s: error in onlinenotification thread: %s\n", _myAddressStr.c_str(), e.what());
+				ZTC_LOG("error in onlinenotification thread: %s\n", e.what());
 			}
 		}
 
@@ -1793,8 +1788,7 @@ nlohmann::json CentralDB::_getNetworkMember(pqxx::work& tx, const std::string ne
 		out["vProto"] = version_protocol.value_or(-1);
 	}
 	catch (std::exception& e) {
-		fprintf(stderr, "ERROR: Error getting network member %s-%s: %s\n", networkID.c_str(), memberID.c_str(),
-				e.what());
+		ZTC_LOG("ERROR: Error getting network member %s-%s: %s\n", networkID.c_str(), memberID.c_str(), e.what());
 		return nlohmann::json();
 	}
 
@@ -1829,7 +1823,7 @@ nlohmann::json CentralDB::_getNetwork(pqxx::work& tx, const std::string networkI
 
 		nlohmann::json cfgtmp = nlohmann::json::parse(cfg);
 		if (! cfgtmp.is_object()) {
-			fprintf(stderr, "ERROR: Network %s configuration is not a JSON object\n", networkID.c_str());
+			ZTC_LOG("ERROR: Network %s configuration is not a JSON object\n", networkID.c_str());
 			return nlohmann::json();
 		}
 
@@ -1886,7 +1880,7 @@ nlohmann::json CentralDB::_getNetwork(pqxx::work& tx, const std::string networkI
 		out["frontend"] = row[6].as<std::string>();
 	}
 	catch (std::exception& e) {
-		fprintf(stderr, "ERROR: Error getting network %s: %s\n", networkID.c_str(), e.what());
+		ZTC_LOG("ERROR: Error getting network %s: %s\n", networkID.c_str(), e.what());
 		return nlohmann::json();
 	}
 	return out;

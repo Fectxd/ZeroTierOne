@@ -12,6 +12,7 @@
 #include <sys/time.h>
 #endif
 #include "../../include/ZeroTierOne.h"
+#include "CtlUtil.hpp"
 #include "EmbeddedNetworkController.hpp"
 #include "FileDB.hpp"
 
@@ -658,6 +659,9 @@ void EmbeddedNetworkController::init(const Identity& signingId, Sender* sender)
 	_signingId = signingId;
 	_sender = sender;
 	_signingIdAddressString = signingId.address().toString(tmp);
+	// Make the controller (node) ID available to ZTC_LOG everywhere, before any DB/worker
+	// threads start. One controller per process, so this is set exactly once.
+	setControllerLogId(_signingIdAddressString);
 
 #ifdef ZT1_CENTRAL_CONTROLLER
 	if (! _cc) {
@@ -1882,8 +1886,7 @@ void EmbeddedNetworkController::_request(
 			// (controller SSO globally disabled, or a transient DB anomaly). Fail closed
 			// — the member is treated as needing authentication — rather than asserting
 			// and taking down the entire controller process.
-			fprintf(stderr,
-					"WARNING: network %.16llx has SSO enabled but no SSO auth info was returned; treating member as "
+			ZTC_LOG("WARNING: network %.16llx has SSO enabled but no SSO auth info was returned; treating member as "
 					"unauthorized\n",
 					(unsigned long long)nwid);
 		}
@@ -2026,7 +2029,7 @@ void EmbeddedNetworkController::_request(
 		}
 		if (! info.issuerURL.empty()) {
 #ifdef ZT_DEBUG
-			fprintf(stderr, "copying issuerURL to nc: %s\n", info.issuerURL.c_str());
+			ZTC_LOG("copying issuerURL to nc: %s\n", info.issuerURL.c_str());
 #endif
 			Utils::scopy(nc->issuerURL, sizeof(nc->issuerURL), info.issuerURL.c_str());
 		}
@@ -2344,7 +2347,7 @@ void EmbeddedNetworkController::_request(
 						Utils::ntoh((uint32_t)(reinterpret_cast<struct sockaddr_in*>(&ipRangeEndIA)->sin_addr.s_addr));
 
 					if ((ipRangeEnd < ipRangeStart) || (ipRangeStart == 0)) {
-						fprintf(stderr, "  bad ip range range\n");
+						ZTC_LOG("  bad ip range range\n");
 						continue;
 					}
 					uint32_t ipRangeLen = ipRangeEnd - ipRangeStart;
@@ -2525,8 +2528,8 @@ void EmbeddedNetworkController::_startThreads()
 				else {
 					// Periodic liveness log every ~30s (30 timeout iterations of 1000ms)
 					if (++idleIterations % 30 == 0) {
-						fprintf(stderr, "request worker %ld: alive, queue_size=%lu, total_processed=%llu\n",
-								t, (unsigned long)queueSize, (unsigned long long)processedCount);
+						ZTC_LOG("request worker %ld: alive, queue_size=%lu, total_processed=%llu\n", t,
+								(unsigned long)queueSize, (unsigned long long)processedCount);
 					}
 				}
 			}

@@ -6,6 +6,7 @@
 
 #include "../../node/Metrics.hpp"
 #include "../../osdep/OSUtils.hpp"
+#include "CtlUtil.hpp"
 
 #include <nlohmann/json.hpp>
 #include <set>
@@ -73,7 +74,7 @@ void RedisStatusWriter::writePending()
 		}
 	}
 	catch (const sw::redis::Error& e) {
-		fprintf(stderr, "Error writing to Redis: %s\n", e.what());
+		ZTC_LOG("Error writing to Redis: %s\n", e.what());
 		// Don't drop the batch on a transient failure — re-queue it for the next cycle.
 		requeuePendingStatus(_pending, _lock, std::move(toWrite), "RedisStatusWriter");
 	}
@@ -127,8 +128,7 @@ void RedisStatusWriter::_doWritePending(sw::redis::Transaction& tx, const std::v
 			sw::redis::RightBoundedInterval<double>(expireOld, sw::redis::BoundType::LEFT_OPEN));
 	}
 
-	fprintf(stderr, "%s: Updated online status of %llu members\n", _controller_id.c_str(),
-			(unsigned long long)updateCount);
+	ZTC_LOG("Updated online status of %llu members\n", (unsigned long long)updateCount);
 	tx.exec();
 }
 

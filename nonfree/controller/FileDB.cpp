@@ -5,6 +5,7 @@
 #include "FileDB.hpp"
 
 #include "../../node/Metrics.hpp"
+#include "CtlUtil.hpp"
 #include "opentelemetry/trace/provider.h"
 
 namespace ZeroTier {
@@ -110,7 +111,7 @@ bool FileDB::save(nlohmann::json& record, bool notifyListeners)
 					OSUtils::ztsnprintf(
 						p1, sizeof(p1), "%s" ZT_PATH_SEPARATOR_S "%.16llx.json", _networksPath.c_str(), nwid);
 					if (! OSUtils::writeFile(p1, OSUtils::jsonDump(record, -1))) {
-						fprintf(stderr, "WARNING: controller unable to write to path: %s" ZT_EOL_S, p1);
+						ZTC_LOG("WARNING: controller unable to write to path: %s" ZT_EOL_S, p1);
 					}
 					_networkChanged(old, record, notifyListeners);
 					modified = true;
@@ -140,7 +141,7 @@ bool FileDB::save(nlohmann::json& record, bool notifyListeners)
 						OSUtils::mkdir(p2);
 						OSUtils::mkdir(pb);
 						if (! OSUtils::writeFile(p1, OSUtils::jsonDump(record, -1))) {
-							fprintf(stderr, "WARNING: controller unable to write to path: %s" ZT_EOL_S, p1);
+							ZTC_LOG("WARNING: controller unable to write to path: %s" ZT_EOL_S, p1);
 						}
 					}
 					_memberChanged(old, record, notifyListeners);

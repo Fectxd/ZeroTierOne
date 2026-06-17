@@ -6,6 +6,7 @@
 
 #include "../../osdep/OSUtils.hpp"
 #include "ControllerConfig.hpp"
+#include "CtlUtil.hpp"
 #include "PubSubWriter.hpp"
 
 #include <chrono>
@@ -102,7 +103,7 @@ void BigTableStatusWriter::writePending()
 		toWrite.swap(_pending);
 	}
 	if (toWrite.empty()) {
-		fprintf(stderr, "BigTableStatusWriter::writePending: nothing to write\n");
+		ZTC_LOG("BigTableStatusWriter::writePending: nothing to write\n");
 		return;
 	}
 
@@ -164,13 +165,13 @@ void BigTableStatusWriter::writePending()
 		bulkRowHashes.push_back(keyHash);
 	}
 
-	fprintf(stderr, "Applying %zu mutations to BigTable\n", bulk.size());
+	ZTC_LOG("Applying %zu mutations to BigTable\n", bulk.size());
 
 	try {
 		std::vector<cbt::FailedMutation> failures = _table->BulkApply(std::move(bulk));
-		fprintf(stderr, "BigTable write completed with %zu failures\n", failures.size());
+		ZTC_LOG("BigTable write completed with %zu failures\n", failures.size());
 		for (auto const& r : failures) {
-			std::cerr << "Error writing to BigTable: " << r.status() << "\n";
+			std::cerr << ::ZeroTier::controllerLogId() << " Error writing to BigTable: " << r.status() << "\n";
 			// Drop the cache entry for any failed row so its node_info is rewritten
 			// next cycle rather than being assumed durably written.
 			const int idx = r.original_index();
@@ -180,7 +181,7 @@ void BigTableStatusWriter::writePending()
 		}
 	}
 	catch (const std::exception& e) {
-		fprintf(stderr, "Exception writing to BigTable: %s\n", e.what());
+		ZTC_LOG("Exception writing to BigTable: %s\n", e.what());
 		span->SetAttribute("error", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 		// The batch's outcome is unknown, so clear the rows it covered to force a

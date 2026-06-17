@@ -4,6 +4,8 @@
 
 #include "StatusWriter.hpp"
 
+#include "CtlUtil.hpp"
+
 #include <cstdio>
 #include <iterator>
 #include <utility>
@@ -35,7 +37,7 @@ void requeuePendingStatus(std::vector<PendingStatusEntry>& pending,
 
 	if (failed.size() > kMaxPendingStatus) {
 		size_t drop = failed.size() - kMaxPendingStatus;
-		fprintf(stderr, "%s: status backlog exceeded %zu entries; dropping %zu oldest\n", who, kMaxPendingStatus, drop);
+		ZTC_LOG("%s: status backlog exceeded %zu entries; dropping %zu oldest\n", who, kMaxPendingStatus, drop);
 		failed.erase(failed.begin(), failed.begin() + drop);
 	}
 

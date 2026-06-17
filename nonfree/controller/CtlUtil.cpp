@@ -4,6 +4,21 @@
 
 #include "CtlUtil.hpp"
 
+namespace ZeroTier {
+
+// Defined unconditionally (outside ZT_CONTROLLER_USE_LIBPQ): the always-compiled controller
+// files log via ZTC_LOG in every build. Set once at init before any worker threads start, so
+// the read in controllerLogId() races with nothing.
+static std::string s_controllerLogId;
+
+void setControllerLogId(const std::string& id)
+{ s_controllerLogId = id; }
+
+const char* controllerLogId()
+{ return s_controllerLogId.empty() ? "----------" : s_controllerLogId.c_str(); }
+
+}	// namespace ZeroTier
+
 #ifdef ZT_CONTROLLER_USE_LIBPQ
 
 #include <iomanip>
@@ -107,13 +122,13 @@ void create_gcp_pubsub_topic_if_needed(std::string project_id, std::string topic
 		if (topicResult.status().code() == google::cloud::StatusCode::kNotFound) {
 			auto createResult = topicAdminClient.CreateTopic(topicName);
 			if (! createResult.ok()) {
-				fprintf(stderr, "Failed to create topic: %s\n", createResult.status().message().c_str());
+				ZTC_LOG("Failed to create topic: %s\n", createResult.status().message().c_str());
 				throw std::runtime_error("Failed to create topic");
 			}
-			fprintf(stderr, "Created topic: %s\n", topicName.c_str());
+			ZTC_LOG("Created topic: %s\n", topicName.c_str());
 		}
 		else {
-			fprintf(stderr, "Failed to get topic: %s\n", topicResult.status().message().c_str());
+			ZTC_LOG("Failed to get topic: %s\n", topicResult.status().message().c_str());
 			throw std::runtime_error("Failed to get topic");
 		}
 	}
@@ -134,7 +149,7 @@ void create_gcp_pubsub_subscription_if_needed(
 	auto sub = subscriptionAdminClient.GetSubscription(subscriptionName);
 	if (! sub.ok()) {
 		if (sub.status().code() == google::cloud::StatusCode::kNotFound) {
-			fprintf(stderr, "Creating subscription %s for topic %s\n", subscriptionName.c_str(), topicName.c_str());
+			ZTC_LOG("Creating subscription %s for topic %s\n", subscriptionName.c_str(), topicName.c_str());
 			google::pubsub::v1::Subscription request;
 			request.set_name(subscriptionName);
 			request.set_topic(pubsub::Topic(project_id, topic_id).FullName());
@@ -142,13 +157,13 @@ void create_gcp_pubsub_subscription_if_needed(
 			request.set_enable_message_ordering(true);
 			auto createResult = subscriptionAdminClient.CreateSubscription(request);
 			if (! createResult.ok()) {
-				fprintf(stderr, "Failed to create subscription: %s\n", createResult.status().message().c_str());
+				ZTC_LOG("Failed to create subscription: %s\n", createResult.status().message().c_str());
 				throw std::runtime_error("Failed to create subscription");
 			}
-			fprintf(stderr, "Created subscription: %s\n", subscriptionName.c_str());
+			ZTC_LOG("Created subscription: %s\n", subscriptionName.c_str());
 		}
 		else {
-			fprintf(stderr, "Failed to get subscription: %s\n", sub.status().message().c_str());
+			ZTC_LOG("Failed to get subscription: %s\n", sub.status().message().c_str());
 			throw std::runtime_error("Failed to get subscription");
 		}
 	}

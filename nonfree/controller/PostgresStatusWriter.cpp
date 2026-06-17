@@ -5,6 +5,7 @@
 #include "PostgresStatusWriter.hpp"
 
 #include "../../node/Metrics.hpp"
+#include "CtlUtil.hpp"
 
 #include <nlohmann/json.hpp>
 #include <pqxx/pqxx>
@@ -84,7 +85,7 @@ void PostgresStatusWriter::writePending()
 		// conn returned to the pool by PooledConnection's destructor on scope exit.
 	}
 	catch (const std::exception& e) {
-		fprintf(stderr, "Error writing to Postgres: %s\n", e.what());
+		ZTC_LOG("Error writing to Postgres: %s\n", e.what());
 		// Don't drop the batch on a transient failure — re-queue it for the next cycle.
 		requeuePendingStatus(_pending, _lock, std::move(toWrite), "PostgresStatusWriter");
 	}

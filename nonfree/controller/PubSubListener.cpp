@@ -99,7 +99,7 @@ void PubSubListener::subscribe()
 {
 	while (_run) {
 		try {
-			fprintf(stderr, "PubSubListener::subscribe: starting session for subscription %s\n", _subscription_id.c_str());
+			ZTC_LOG("PubSubListener::subscribe: starting session for subscription %s\n", _subscription_id.c_str());
 			_lastMessageTime.store(std::chrono::steady_clock::now());
 
 			auto session = _subscriber->Subscribe([this](pubsub::Message const& m, pubsub::AckHandler h) {
@@ -137,16 +137,14 @@ void PubSubListener::subscribe()
 								span->SetStatus(opentelemetry::trace::StatusCode::kOk);
 								break;
 							case NotificationResult::PermanentFailure:
-								fprintf(stderr,
-										"PubSubListener: permanent failure for message %s (ordering_key=%s); acking to "
+								ZTC_LOG("PubSubListener: permanent failure for message %s (ordering_key=%s); acking to "
 										"drop\n",
 										m.message_id().c_str(), m.ordering_key().c_str());
 								span->SetStatus(opentelemetry::trace::StatusCode::kError,
 												"permanent failure; dropping");
 								break;
 							case NotificationResult::TransientFailure:
-								fprintf(stderr,
-										"PubSubListener: transient failure for message %s (ordering_key=%s); nacking "
+								ZTC_LOG("PubSubListener: transient failure for message %s (ordering_key=%s); nacking "
 										"for redelivery\n",
 										m.message_id().c_str(), m.ordering_key().c_str());
 								span->SetStatus(opentelemetry::trace::StatusCode::kError,
@@ -157,7 +155,7 @@ void PubSubListener::subscribe()
 				}
 				catch (const std::exception& e) {
 					// An error escaped onNotification's own handling — treat as transient and redeliver.
-					fprintf(stderr, "PubSubListener callback exception: %s (subscription=%s message_id=%s); nacking\n",
+					ZTC_LOG("PubSubListener callback exception: %s (subscription=%s message_id=%s); nacking\n",
 							e.what(), _subscription_id.c_str(), m.message_id().c_str());
 					result = NotificationResult::TransientFailure;
 				}
@@ -196,8 +194,7 @@ void PubSubListener::subscribe()
 				}
 				auto idle = std::chrono::steady_clock::now() - _lastMessageTime.load();
 				if (idle > std::chrono::seconds(60)) {
-					fprintf(stderr, "PubSubListener: no messages for 60s on %s, reconnecting\n",
-						_subscription_id.c_str());
+					ZTC_LOG("PubSubListener: no messages for 60s on %s, reconnecting\n", _subscription_id.c_str());
 					_session.cancel();
 					break;
 				}
@@ -212,15 +209,15 @@ void PubSubListener::subscribe()
 			try {
 				auto status = _session.get();
 				if (! status.ok()) {
-					fprintf(stderr, "Subscription session ended: %s\n", status.message().c_str());
+					ZTC_LOG("Subscription session ended: %s\n", status.message().c_str());
 				}
 			}
 			catch (...) {
-				fprintf(stderr, "Subscription session ended with exception on %s\n", _subscription_id.c_str());
+				ZTC_LOG("Subscription session ended with exception on %s\n", _subscription_id.c_str());
 			}
 		}
 		catch (google::cloud::Status const& status) {
-			fprintf(stderr, "Subscription terminated with status: %s\n", status.message().c_str());
+			ZTC_LOG("Subscription terminated with status: %s\n", status.message().c_str());
 		}
 	}
 }
@@ -245,7 +242,7 @@ NotificationResult PubSubNetworkListener::onNotification(const std::string& payl
 
 	pbmessages::NetworkChange nc;
 	if (! nc.ParseFromString(payload)) {
-		fprintf(stderr, "Failed to parse NetworkChange protobuf message\n");
+		ZTC_LOG("Failed to parse NetworkChange protobuf message\n");
 		span->SetAttribute("error", "Failed to parse NetworkChange protobuf message");
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Failed to parse protobuf");
 		return NotificationResult::PermanentFailure;
@@ -255,17 +252,17 @@ NotificationResult PubSubNetworkListener::onNotification(const std::string& payl
 		nlohmann::json oldConfig, newConfig;
 
 		if (nc.has_old()) {
-			fprintf(stderr, "has old network config\n");
+			ZTC_LOG("has old network config\n");
 			oldConfig = toJson(nc.old(), nc.change_source());
 		}
 
 		if (nc.has_new_()) {
-			fprintf(stderr, "has new network config\n");
+			ZTC_LOG("has new network config\n");
 			newConfig = toJson(nc.new_(), nc.change_source());
 		}
 
 		if (! nc.has_old() && ! nc.has_new_()) {
-			fprintf(stderr, "NetworkChange message has no old or new network config\n");
+			ZTC_LOG("NetworkChange message has no old or new network config\n");
 			span->SetAttribute("error", "NetworkChange message has no old or new network config");
 			span->SetStatus(opentelemetry::trace::StatusCode::kError, "No old or new config");
 			return NotificationResult::PermanentFailure;
@@ -299,21 +296,21 @@ NotificationResult PubSubNetworkListener::onNotification(const std::string& payl
 	}
 	catch (const nlohmann::json::exception& e) {
 		// Malformed/unexpected message contents (parse or type error) — unprocessable, drop it.
-		fprintf(stderr, "PubSubNetworkListener JSON error: %s\n", e.what());
+		ZTC_LOG("PubSubNetworkListener JSON error: %s\n", e.what());
 		span->SetAttribute("error", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-		fprintf(stderr, "payload: %s\n", payload.c_str());
+		ZTC_LOG("payload: %s\n", payload.c_str());
 		return NotificationResult::PermanentFailure;
 	}
 	catch (const std::exception& e) {
 		// Most likely a DB/runtime error from _db->save/eraseNetwork — retryable.
-		fprintf(stderr, "PubSubNetworkListener Exception in PubSubNetworkListener: %s\n", e.what());
+		ZTC_LOG("PubSubNetworkListener Exception in PubSubNetworkListener: %s\n", e.what());
 		span->SetAttribute("error", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 		return NotificationResult::TransientFailure;
 	}
 	catch (...) {
-		fprintf(stderr, "PubSubNetworkListener Unknown exception in PubSubNetworkListener\n");
+		ZTC_LOG("PubSubNetworkListener Unknown exception in PubSubNetworkListener\n");
 		span->SetAttribute("error", "Unknown exception in PubSubNetworkListener");
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Unknown exception");
 		return NotificationResult::PermanentFailure;
@@ -341,7 +338,7 @@ NotificationResult PubSubMemberListener::onNotification(const std::string& paylo
 
 	pbmessages::MemberChange mc;
 	if (! mc.ParseFromString(payload)) {
-		fprintf(stderr, "Failed to parse MemberChange protobuf message\n");
+		ZTC_LOG("Failed to parse MemberChange protobuf message\n");
 		span->SetAttribute("error", "Failed to parse MemberChange protobuf message");
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Failed to parse protobuf");
 		return NotificationResult::PermanentFailure;
@@ -352,17 +349,17 @@ NotificationResult PubSubMemberListener::onNotification(const std::string& paylo
 		nlohmann::json oldConfig, newConfig;
 
 		if (mc.has_old()) {
-			fprintf(stderr, "has old member config\n");
+			ZTC_LOG("has old member config\n");
 			oldConfig = toJson(mc.old(), mc.change_source());
 		}
 
 		if (mc.has_new_()) {
-			fprintf(stderr, "has new member config\n");
+			ZTC_LOG("has new member config\n");
 			newConfig = toJson(mc.new_(), mc.change_source());
 		}
 
 		if (! mc.has_old() && ! mc.has_new_()) {
-			fprintf(stderr, "MemberChange message has no old or new member config\n");
+			ZTC_LOG("MemberChange message has no old or new member config\n");
 			span->SetAttribute("error", "MemberChange message has no old or new member config");
 			span->SetStatus(opentelemetry::trace::StatusCode::kError, "No old or new config");
 			return NotificationResult::PermanentFailure;
@@ -403,15 +400,15 @@ NotificationResult PubSubMemberListener::onNotification(const std::string& paylo
 	}
 	catch (const nlohmann::json::exception& e) {
 		// Malformed/unexpected message contents (parse or type error) — unprocessable, drop it.
-		fprintf(stderr, "PubSubMemberListener JSON error: %s\n", e.what());
+		ZTC_LOG("PubSubMemberListener JSON error: %s\n", e.what());
 		span->SetAttribute("error", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-		fprintf(stderr, "payload: %s\n", payload.c_str());
+		ZTC_LOG("payload: %s\n", payload.c_str());
 		return NotificationResult::PermanentFailure;
 	}
 	catch (const std::exception& e) {
 		// Most likely a DB/runtime error from _db->save/eraseMember — retryable.
-		fprintf(stderr, "PubSubMemberListener Exception in PubSubMemberListener: %s\n", e.what());
+		ZTC_LOG("PubSubMemberListener Exception in PubSubMemberListener: %s\n", e.what());
 		span->SetAttribute("error", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 		return NotificationResult::TransientFailure;
@@ -440,7 +437,7 @@ nlohmann::json toJson(const pbmessages::NetworkChange_Network& nc, pbmessages::N
 		}
 	}
 	catch (const nlohmann::json::parse_error& e) {
-		fprintf(stderr, "toJson Network capabilities JSON parse error: %s\n", e.what());
+		ZTC_LOG("toJson Network capabilities JSON parse error: %s\n", e.what());
 		out["capabilities"] = nlohmann::json::array();
 	}
 
@@ -471,7 +468,7 @@ nlohmann::json toJson(const pbmessages::NetworkChange_Network& nc, pbmessages::N
 		}
 	}
 	catch (const nlohmann::json::parse_error& e) {
-		fprintf(stderr, "toJson Network rules JSON parse error: %s\n", e.what());
+		ZTC_LOG("toJson Network rules JSON parse error: %s\n", e.what());
 		out["rules"] = nlohmann::json::array();
 	}
 
@@ -490,7 +487,7 @@ nlohmann::json toJson(const pbmessages::NetworkChange_Network& nc, pbmessages::N
 		}
 	}
 	catch (const nlohmann::json::parse_error& e) {
-		fprintf(stderr, "toJson Network tags JSON parse error: %s\n", e.what());
+		ZTC_LOG("toJson Network tags JSON parse error: %s\n", e.what());
 		out["tags"] = nlohmann::json::array();
 	}
 
@@ -642,8 +639,8 @@ nlohmann::json toJson(const pbmessages::MemberChange_Member& mc, pbmessages::Mem
 		}
 	}
 	catch (const nlohmann::json::parse_error& e) {
-		fprintf(stderr, "MemberChange member capabilities JSON parse error: %s\n", e.what());
-		fprintf(stderr, "capabilities: %s\n", mc.capabilities().c_str());
+		ZTC_LOG("MemberChange member capabilities JSON parse error: %s\n", e.what());
+		ZTC_LOG("capabilities: %s\n", mc.capabilities().c_str());
 		out["capabilities"] = nlohmann::json::array();
 	}
 
@@ -667,8 +664,8 @@ nlohmann::json toJson(const pbmessages::MemberChange_Member& mc, pbmessages::Mem
 		}
 	}
 	catch (const nlohmann::json::parse_error& e) {
-		fprintf(stderr, "MemberChange member tags JSON parse error: %s\n", e.what());
-		fprintf(stderr, "tags: %s\n", mc.tags().c_str());
+		ZTC_LOG("MemberChange member tags JSON parse error: %s\n", e.what());
+		ZTC_LOG("tags: %s\n", mc.tags().c_str());
 		out["tags"] = nlohmann::json::array();
 	}
 
@@ -718,18 +715,18 @@ NotificationResult PubSubSSOListener::onNotification(const std::string& payload)
 
 	pbmessages::SSOUpdate msg;
 	if (! msg.ParseFromString(payload)) {
-		fprintf(stderr, "Failed to parse SSOUpdate protobuf message\n");
+		ZTC_LOG("Failed to parse SSOUpdate protobuf message\n");
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Failed to parse protobuf");
 		return NotificationResult::PermanentFailure;
 	}
 
 	if (msg.message_type() != pbmessages::SSOUpdate::ZT1_AUTH_UPDATE) {
-		fprintf(stderr, "PubSubSSOListener: ignoring non-ZT1_AUTH_UPDATE message type %d\n", msg.message_type());
+		ZTC_LOG("PubSubSSOListener: ignoring non-ZT1_AUTH_UPDATE message type %d\n", msg.message_type());
 		return NotificationResult::Ok;	 // valid message we intentionally don't handle — ack
 	}
 
 	if (! msg.has_auth_update()) {
-		fprintf(stderr, "PubSubSSOListener: ZT1_AUTH_UPDATE message missing auth_update\n");
+		ZTC_LOG("PubSubSSOListener: ZT1_AUTH_UPDATE message missing auth_update\n");
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Missing auth_update");
 		return NotificationResult::PermanentFailure;
 	}
@@ -753,8 +750,7 @@ NotificationResult PubSubSSOListener::onNotification(const std::string& payload)
 			"SELECT frontend FROM networks_ctl WHERE id = $1",
 			pqxx::params { networkId });
 		if (fr.empty()) {
-			fprintf(stderr, "PubSubSSOListener: ignoring auth update for unknown network=%s\n",
-				networkId.c_str());
+			ZTC_LOG("PubSubSSOListener: ignoring auth update for unknown network=%s\n", networkId.c_str());
 			w.abort();
 			return NotificationResult::Ok;	 // ack — no point redelivering for a nonexistent network
 		}
@@ -779,7 +775,7 @@ NotificationResult PubSubSSOListener::onNotification(const std::string& payload)
 	catch (std::exception& e) {
 		// Pool exhaustion / DB error — retryable. Nack so the auth update is redelivered
 		// rather than silently lost (a lost SSO auth-expiry update is security-relevant).
-		fprintf(stderr, "PubSubSSOListener: error updating sso_expiry: %s\n", e.what());
+		ZTC_LOG("PubSubSSOListener: error updating sso_expiry: %s\n", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 		return NotificationResult::TransientFailure;
 	}

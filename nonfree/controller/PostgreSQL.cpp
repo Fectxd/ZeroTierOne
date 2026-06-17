@@ -6,6 +6,7 @@
 
 #include "PostgreSQL.hpp"
 
+#include "CtlUtil.hpp"
 #include "opentelemetry/trace/provider.h"
 
 #include <chrono>
@@ -84,13 +85,13 @@ void PostgresMemberListener::listen()
 		// fresh one, backing off briefly to avoid a hot loop while the DB is unreachable.
 		try {
 			if (! _conn || ! _conn->alive()) {
-				fprintf(stderr, "PostgresMemberListener: (re)connecting listener on channel %s\n", _channel.c_str());
+				ZTC_LOG("PostgresMemberListener: (re)connecting listener on channel %s\n", _channel.c_str());
 				reconnect();
 			}
 			_conn->c->await_notification(_notification_timeout, 0);
 		}
 		catch (const std::exception& e) {
-			fprintf(stderr, "ERROR: exception in member notification listener: %s\n", e.what());
+			ZTC_LOG("ERROR: exception in member notification listener: %s\n", e.what());
 			delete _receiver;
 			_receiver = nullptr;
 			if (_conn) {
@@ -140,7 +141,7 @@ NotificationResult PostgresMemberListener::onNotification(const std::string& pay
 	}
 	catch (const std::exception& e) {
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-		fprintf(stderr, "ERROR: exception handling member notification: %s\n", e.what());
+		ZTC_LOG("ERROR: exception handling member notification: %s\n", e.what());
 		return NotificationResult::TransientFailure;
 	}
 	return NotificationResult::Ok;
@@ -210,13 +211,13 @@ void PostgresNetworkListener::listen()
 		// connection is dropped and re-borrowed on the next iteration.
 		try {
 			if (! _conn || ! _conn->alive()) {
-				fprintf(stderr, "PostgresNetworkListener: (re)connecting listener on channel %s\n", _channel.c_str());
+				ZTC_LOG("PostgresNetworkListener: (re)connecting listener on channel %s\n", _channel.c_str());
 				reconnect();
 			}
 			_conn->c->await_notification(_notification_timeout, 0);
 		}
 		catch (const std::exception& e) {
-			fprintf(stderr, "ERROR: exception in network notification listener: %s\n", e.what());
+			ZTC_LOG("ERROR: exception in network notification listener: %s\n", e.what());
 			delete _receiver;
 			_receiver = nullptr;
 			if (_conn) {
@@ -276,7 +277,7 @@ NotificationResult PostgresNetworkListener::onNotification(const std::string& pa
 	}
 	catch (const std::exception& e) {
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-		fprintf(stderr, "ERROR: exception handling network notification: %s\n", e.what());
+		ZTC_LOG("ERROR: exception handling network notification: %s\n", e.what());
 		return NotificationResult::TransientFailure;
 	}
 	return NotificationResult::Ok;

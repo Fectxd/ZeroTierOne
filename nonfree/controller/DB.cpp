@@ -5,6 +5,7 @@
 #include "DB.hpp"
 
 #include "../../node/Metrics.hpp"
+#include "CtlUtil.hpp"
 #include "EmbeddedNetworkController.hpp"
 #include "opentelemetry/trace/provider.h"
 
@@ -532,7 +533,8 @@ void DB::_networkChanged(nlohmann::json& old, nlohmann::json& networkConfig, boo
 				}
 			}
 			catch (std::exception& e) {
-				std::cerr << "Error deauthorizing members on network delete: " << e.what() << std::endl;
+				std::cerr << ::ZeroTier::controllerLogId()
+						  << " Error deauthorizing members on network delete: " << e.what() << std::endl;
 			}
 
 			// delete the network
