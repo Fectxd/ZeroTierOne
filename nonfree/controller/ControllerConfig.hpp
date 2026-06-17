@@ -46,6 +46,12 @@ struct ControllerConfig {
 	{
 	}
 
+	// Owns the raw config pointers and frees them in the destructor, so a shallow copy
+	// would double-free. This object is only ever heap-allocated or held by value and
+	// passed by pointer, never copied, so disable copying outright.
+	ControllerConfig(const ControllerConfig&) = delete;
+	ControllerConfig& operator=(const ControllerConfig&) = delete;
+
 	~ControllerConfig()
 	{
 		if (redisConfig) {

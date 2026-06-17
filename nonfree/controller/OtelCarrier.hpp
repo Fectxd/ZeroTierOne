@@ -14,11 +14,14 @@ template <typename T> class OtelCarrier : public opentelemetry::context::propaga
 	{
 	}
 
-	OtelCarrier() = default;
+	// A carrier with no backing storage would leave the headers_ reference dangling;
+	// it's never default-constructed, so forbid it.
+	OtelCarrier() = delete;
 
 	virtual nostd::string_view Get(nostd::string_view key) const noexcept override
 	{
-		std::string key_to_compare = key.data();
+		// key.data() is not guaranteed NUL-terminated; bound the std::string by size().
+		std::string key_to_compare(key.data(), key.size());
 
 		if (key == opentelemetry::trace::propagation::kTraceParent) {
 			key_to_compare = "traceparent";

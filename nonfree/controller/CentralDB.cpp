@@ -420,10 +420,13 @@ void CentralDB::nodeIsOnline(const uint64_t networkId,
 	char networkIdStr[17];
 	char memberIdStr[11];
 	char ipStr[INET6_ADDRSTRLEN];
+	// osArch may be NULL (public virtual taking a raw const char*); guard so the
+	// SetAttribute / std::string construction below can't hit UB on the hot heartbeat path.
+	const char* oa = osArch ? osArch : "unknown/unknown";
 	span->SetAttribute("network_id", Utils::hex(networkId, networkIdStr));
 	span->SetAttribute("member_id", Utils::hex10(memberId, memberIdStr));
 	span->SetAttribute("physical_address", physicalAddress.toString(ipStr));
-	span->SetAttribute("os_arch", osArch);
+	span->SetAttribute("os_arch", oa);
 
 	std::lock_guard<std::mutex> l(_lastOnline_l);
 	NodeOnlineRecord& i = _lastOnline[std::pair<uint64_t, uint64_t>(networkId, memberId)];
@@ -431,7 +434,7 @@ void CentralDB::nodeIsOnline(const uint64_t networkId,
 	if (physicalAddress) {
 		i.physicalAddress = physicalAddress;
 	}
-	i.osArch = std::string(osArch);
+	i.osArch = std::string(oa);
 }
 
 void CentralDB::nodeIsOnline(const uint64_t networkId, const uint64_t memberId, const InetAddress& physicalAddress)
@@ -1413,18 +1416,16 @@ void CentralDB::commitThread()
 
 						std::string id = OSUtils::jsonString(config["id"], "");
 
-						pqxx::row nwrow =
-							w.exec("SELECT COUNT(id) frontend FROM networks_ctl WHERE id = $1", pqxx::params { id })
-								.one_row();
-						int nwcount = nwrow[0].as<int>();
-						bool isNewNetwork = (nwcount == 0);
+						// id is the PK, so this returns at most one row: present ⇒ the network
+						// exists (and we read its frontend), empty ⇒ it's a new network. (A
+						// result rather than one_row(), which would throw on the expected
+						// zero-row "new network" case.)
+						pqxx::result nwres =
+							w.exec("SELECT frontend FROM networks_ctl WHERE id = $1", pqxx::params { id });
+						bool isNewNetwork = nwres.empty();
 						std::string frontend = "";
-
 						if (! isNewNetwork) {
-							pqxx::row nwrow =
-								w.exec("SELECT frontend FROM networks_ctl WHERE id = $1", pqxx::params { id })
-									.one_row();
-							frontend = nwrow[0].as<std::string>();
+							frontend = nwres[0][0].as<std::optional<std::string> >().value_or("");
 						}
 
 						std::string change_source;
@@ -1889,9 +1890,9 @@ nlohmann::json CentralDB::_getNetwork(pqxx::work& tx, const std::string networkI
 		out["objtype"] = "network";
 		out["routes"] = cfgtmp["routes"].is_array() ? cfgtmp["routes"] : json::array();
 		if (! cfgtmp["dns"].is_object()) {
-			cfgtmp["dns"] = json::object();
-			cfgtmp["dns"]["domain"] = "";
-			cfgtmp["dns"]["servers"] = json::array();
+			out["dns"] = json::object();
+			out["dns"]["domain"] = "";
+			out["dns"]["servers"] = json::array();
 		}
 		else {
 			out["dns"] = cfgtmp["dns"];
