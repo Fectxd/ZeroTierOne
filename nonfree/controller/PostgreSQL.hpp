@@ -12,6 +12,7 @@
 #include "NotificationListener.hpp"
 #include "opentelemetry/trace/provider.h"
 
+#include <atomic>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <pqxx/pqxx>
@@ -235,7 +236,7 @@ class PostgresMemberListener : public NotificationListener {
 	// Drop the dead connection/receiver and rebind to a freshly borrowed one.
 	void reconnect();
 
-	bool _run = false;
+	std::atomic<bool> _run { false };
 	DB* _db;
 	std::shared_ptr<ConnectionPool<PostgresConnection> > _pool;
 	std::shared_ptr<PostgresConnection> _conn;
@@ -262,7 +263,7 @@ class PostgresNetworkListener : public NotificationListener {
 	// Drop the dead connection/receiver and rebind to a freshly borrowed one.
 	void reconnect();
 
-	bool _run = false;
+	std::atomic<bool> _run { false };
 	DB* _db;
 	std::shared_ptr<ConnectionPool<PostgresConnection> > _pool;
 	std::shared_ptr<PostgresConnection> _conn;

@@ -110,7 +110,11 @@ class DB {
 	template <typename F> inline void each(F f)
 	{
 		nlohmann::json nullJson;
-		std::unique_lock<std::shared_mutex> lck(_networks_l);
+		// Read-only traversal of _networks: take a shared lock so concurrent readers
+		// (get/hasNetwork/...) aren't blocked for the whole iteration. The callback
+		// must not mutate this DB's _networks (the only caller, DBMirrorSet's sync,
+		// writes to other DBs, not this one).
+		std::shared_lock<std::shared_mutex> lck(_networks_l);
 		for (auto nw = _networks.begin(); nw != _networks.end(); ++nw) {
 			f(nw->first, nw->second->config, 0, nullJson);	 // first provide network with 0 for member ID
 			for (auto m = nw->second->members.begin(); m != nw->second->members.end(); ++m) {

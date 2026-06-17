@@ -7,6 +7,7 @@
 #include "NotificationListener.hpp"
 #include "Redis.hpp"
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <sw/redis++/redis++.h>
@@ -31,12 +32,17 @@ class RedisListener : public NotificationListener {
 		_listenThread = std::thread(&RedisListener::listen, this);
 	}
 
+	// Stop and join the listen thread. Must be called from the most-derived destructor
+	// (before its members are torn down) since listen() lives in the derived class.
+	// Idempotent; the base destructor also calls it as a safety net.
+	void stop();
+
   protected:
 	std::string _controller_id;
 	std::shared_ptr<sw::redis::Redis> _redis;
 	std::shared_ptr<sw::redis::RedisCluster> _cluster;
 	bool _is_cluster = false;
-	bool _run = false;
+	std::atomic<bool> _run { false };
 
   private:
 	std::thread _listenThread;

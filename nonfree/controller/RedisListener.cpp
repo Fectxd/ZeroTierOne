@@ -32,12 +32,19 @@ RedisListener::RedisListener(std::string controller_id, std::shared_ptr<sw::redi
 {
 }
 
-RedisListener::~RedisListener()
+void RedisListener::stop()
 {
 	_run = false;
 	if (_listenThread.joinable()) {
 		_listenThread.join();
 	}
+}
+
+RedisListener::~RedisListener()
+{
+	// Safety net: each derived destructor should already have called stop() so the
+	// listen thread is joined while the derived object is still intact. Idempotent.
+	stop();
 }
 
 RedisNetworkListener::RedisNetworkListener(std::string controller_id, std::shared_ptr<sw::redis::Redis> redis, DB* db)
@@ -59,7 +66,7 @@ RedisNetworkListener::RedisNetworkListener(
 
 RedisNetworkListener::~RedisNetworkListener()
 {
-	// Destructor logic if needed
+	stop();	  // join the listen thread before this object's members are destroyed
 }
 
 void RedisNetworkListener::listen()
@@ -155,7 +162,7 @@ RedisMemberListener::RedisMemberListener(
 
 RedisMemberListener::~RedisMemberListener()
 {
-	// Destructor logic if needed
+	stop();	  // join the listen thread before this object's members are destroyed
 }
 
 void RedisMemberListener::listen()

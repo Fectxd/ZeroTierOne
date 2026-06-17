@@ -47,6 +47,11 @@ using json = nlohmann::json;
 // Global maximum size of arrays in JSON objects
 #define ZT_CONTROLLER_MAX_ARRAY_SIZE 16384
 
+// Cap on the request queue for controller-initiated re-requests (pushes), which fan
+// out to every online member on a network change. Beyond this they're dropped (the
+// member picks up the change on its next poll) to bound memory under churn.
+#define ZT_CONTROLLER_MAX_QUEUED_REREQUESTS 16384
+
 namespace ZeroTier {
 
 namespace {
@@ -618,13 +623,23 @@ EmbeddedNetworkController::EmbeddedNetworkController(
 
 EmbeddedNetworkController::~EmbeddedNetworkController()
 {
-	std::lock_guard<std::mutex> l(_threads_l);
+	// Signal shutdown first so any concurrent request() returns early instead of
+	// contending for _threads_l (held across the joins below) or queuing more work
+	// onto the workers we're tearing down. Stop the queue so blocked workers wake.
+	_shuttingDown = true;
 	_queue.stop();
-	for (auto t = _threads.begin(); t != _threads.end(); ++t) {
-		t->join();
+	{
+		std::lock_guard<std::mutex> l(_threads_l);
+		for (auto t = _threads.begin(); t != _threads.end(); ++t) {
+			if (t->joinable()) {
+				t->join();
+			}
+		}
 	}
 	_ssoExpiryRunning = false;
-	_ssoExpiry.join();
+	if (_ssoExpiry.joinable()) {
+		_ssoExpiry.join();
+	}
 }
 
 void EmbeddedNetworkController::setSSORedirectURL(const std::string& url)
@@ -706,6 +721,9 @@ void EmbeddedNetworkController::request(
 	if (((! _signingId) || (! _signingId.hasPrivate())) || (_signingId.address().toInt() != (nwid >> 24))
 		|| (! _sender))
 		return;
+	if (_shuttingDown) {
+		return;
+	}
 	_startThreads();
 
 	const int64_t now = OSUtils::now();
@@ -717,6 +735,16 @@ void EmbeddedNetworkController::request(
 			return;
 		}
 		ms.lastRequestTime = now;
+	}
+	else {
+		// Controller-initiated re-request (push). These fan out to every online member
+		// on a network change, so cap the backlog and drop on overflow rather than
+		// growing the queue without bound — the member will still pick up the change on
+		// its next periodic poll. Member-initiated requests (requestPacketId != 0) are
+		// always queued; they're already rate-limited per member above.
+		if (_queue.size() >= ZT_CONTROLLER_MAX_QUEUED_REREQUESTS) {
+			return;
+		}
 	}
 
 	_RQEntry* qe = new _RQEntry;
@@ -1686,6 +1714,13 @@ void EmbeddedNetworkController::_request(
 		|| (! _sender)) {
 		return;
 	}
+
+	// Serialize the read-modify-write of this member's record so two concurrent
+	// requests for the same member (e.g. a member-initiated request racing a
+	// controller-initiated re-request on a different worker thread) can't clobber each
+	// other's authorization / IP-assignment changes. Per-member, so unrelated members
+	// don't contend.
+	std::lock_guard<std::mutex> memberLock(_memberLock(nwid, identity.address().toInt()));
 
 	const int64_t now = OSUtils::now();
 

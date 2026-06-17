@@ -64,7 +64,7 @@ PubSubListener::PubSubListener(std::string controller_id, std::string project, s
 	_subscriberThread = std::thread(&PubSubListener::subscribe, this);
 }
 
-PubSubListener::~PubSubListener()
+void PubSubListener::stop()
 {
 	_run = false;
 	{
@@ -76,6 +76,14 @@ PubSubListener::~PubSubListener()
 	if (_subscriberThread.joinable()) {
 		_subscriberThread.join();
 	}
+}
+
+PubSubListener::~PubSubListener()
+{
+	// Safety net: each derived destructor should already have called stop() so the
+	// subscriber thread is joined while the derived object is still intact. This is
+	// idempotent (thread already joined, _hasSession already cleared).
+	stop();
 
 	if (_subscription) {
 		delete _subscription;
@@ -221,6 +229,7 @@ PubSubNetworkListener::PubSubNetworkListener(std::string controller_id, std::str
 
 PubSubNetworkListener::~PubSubNetworkListener()
 {
+	stop();	  // join the subscriber thread before this object's members are destroyed
 }
 
 NotificationResult PubSubNetworkListener::onNotification(const std::string& payload)
@@ -316,6 +325,7 @@ PubSubMemberListener::PubSubMemberListener(std::string controller_id, std::strin
 
 PubSubMemberListener::~PubSubMemberListener()
 {
+	stop();	  // join the subscriber thread before this object's members are destroyed
 }
 
 NotificationResult PubSubMemberListener::onNotification(const std::string& payload)
@@ -692,6 +702,7 @@ PubSubSSOListener::PubSubSSOListener(
 
 PubSubSSOListener::~PubSubSSOListener()
 {
+	stop();	  // join the subscriber thread before this object's members are destroyed
 }
 
 NotificationResult PubSubSSOListener::onNotification(const std::string& payload)

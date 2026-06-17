@@ -17,6 +17,9 @@
 #else
 #include <cpp-httplib/httplib.h>
 #endif
+#include <array>
+#include <atomic>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <set>
 #include <stdint.h>
@@ -157,13 +160,26 @@ class EmbeddedNetworkController
 	std::set<std::pair<int64_t, _MemberStatusKey> > _expiringSoon;
 	std::mutex _expiringSoon_l;
 
+	// Sharded per-member locks: serialize the read-modify-write of a single member's
+	// record in _request() so concurrent requests for the same member can't clobber
+	// each other's auth/IP-assignment changes. Different members hash to different
+	// shards, so unrelated members don't contend.
+	static constexpr std::size_t MEMBER_LOCK_SHARDS = 256;
+	std::array<std::mutex, MEMBER_LOCK_SHARDS> _memberLocks;
+	std::mutex& _memberLock(uint64_t nwid, uint64_t nodeId)
+	{ return _memberLocks[(nwid ^ nodeId) % MEMBER_LOCK_SHARDS]; }
+
+	// Set in the destructor so an in-flight request() returns early instead of
+	// contending for _threads_l (held across the worker joins) or queuing new work.
+	std::atomic<bool> _shuttingDown { false };
+
 	RedisConfig* _rc;
 #ifdef ZT1_CENTRAL_CONTROLLER
 	const ControllerConfig* _cc;
 #endif
 	std::string _ssoRedirectURL;
 
-	bool _ssoExpiryRunning;
+	std::atomic<bool> _ssoExpiryRunning;
 	std::thread _ssoExpiry;
 
 #ifdef CENTRAL_CONTROLLER_REQUEST_BENCHMARK
