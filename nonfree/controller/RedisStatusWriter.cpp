@@ -9,13 +9,15 @@
 namespace ZeroTier {
 
 RedisStatusWriter::RedisStatusWriter(std::shared_ptr<sw::redis::Redis> redis, std::string controller_id)
-	: _redis(redis)
+	: _controller_id(controller_id)
+	, _redis(redis)
 	, _mode(REDIS_MODE_STANDALONE)
 {
 }
 
 RedisStatusWriter::RedisStatusWriter(std::shared_ptr<sw::redis::RedisCluster> cluster, std::string controller_id)
-	: _cluster(cluster)
+	: _controller_id(controller_id)
+	, _cluster(cluster)
 	, _mode(REDIS_MODE_CLUSTER)
 {
 }
@@ -76,7 +78,7 @@ void RedisStatusWriter::_doWritePending(sw::redis::Transaction& tx)
 
 	std::set<std::string> networksUpdated;
 	uint64_t updateCount = 0;
-	for (const auto& entry : _pending) {
+	for (const auto& entry : toWrite) {
 		char iptmp[64] = { 0 };
 		std::string ipAddr = entry.address.toIpString(iptmp);
 		std::unordered_map<std::string, std::string> record = {

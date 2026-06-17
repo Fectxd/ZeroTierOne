@@ -649,7 +649,7 @@ void EmbeddedNetworkController::init(const Identity& signingId, Sender* sender)
 		throw std::runtime_error("controller config required");
 	}
 
-	if (_path.length() > 9 && (_path.substr(0, 9) != "postgres:")) {
+	if (_path.length() < 9 || (_path.substr(0, 9) != "postgres:")) {
 		throw std::runtime_error("central controller requires postgres db");
 	}
 

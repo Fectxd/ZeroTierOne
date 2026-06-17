@@ -154,43 +154,6 @@ void create_gcp_pubsub_subscription_if_needed(
 	}
 }
 
-// void create_bigtable_table(std::string project_id, std::string instance_id)
-// {
-// 	auto bigtableAdminClient =
-// 		bigtable_admin::BigtableTableAdminClient(bigtable_admin::MakeBigtableTableAdminConnection());
-
-// 	std::string table_id = "member_status";
-// 	std::string table_name = "projects/" + project_id + "/instances/" + instance_id + "/tables/" + table_id;
-
-// 	// Check if the table exists
-// 	auto table = bigtableAdminClient.GetTable(table_name);
-// 	if (! table.ok()) {
-// 		if (table.status().code() == google::cloud::StatusCode::kNotFound) {
-// 			google::bigtable::admin::v2::Table table_config;
-// 			table_config.set_name(table_id);
-// 			auto families = table_config.mutable_column_families();
-// 			// Define column families
-// 			// Column family "node_info" with max 1 version
-// 			// google::bigtable::admin::v2::ColumnFamily* node_info = table_config.add_column_families();
-// 			// Column family "check_in" with max 1 version
-
-// 			auto create_result = bigtableAdminClient.CreateTable(
-// 				"projects/" + project_id + "/instances/" + instance_id, table_id, table_config);
-
-// 			if (! create_result.ok()) {
-// 				fprintf(
-// 					stderr, "Failed to create Bigtable table member_status: %s\n",
-// 					create_result.status().message().c_str());
-// 				throw std::runtime_error("Failed to create Bigtable table");
-// 			}
-// 			fprintf(stderr, "Created Bigtable table: member_status\n");
-// 		}
-// 		else {
-// 			fprintf(stderr, "Failed to get Bigtable table member_status: %s\n", table.status().message().c_str());
-// 			throw std::runtime_error("Failed to get Bigtable table");
-// 		}
-// 	}
-// }
 #endif
 
 }	// namespace ZeroTier
