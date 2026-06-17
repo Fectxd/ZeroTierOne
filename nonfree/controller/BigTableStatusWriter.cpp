@@ -4,6 +4,7 @@
 #include "ControllerConfig.hpp"
 #include "PubSubWriter.hpp"
 
+#include <chrono>
 #include <functional>
 #include <google/cloud/bigtable/mutations.h>
 #include <google/cloud/bigtable/row.h>
@@ -114,6 +115,16 @@ void BigTableStatusWriter::writePending()
 		std::string row_key = entry.network_id + "#" + entry.node_id;
 		const uint64_t keyHash = hasher(row_key);
 
+		// Use the member's last-seen time (epoch ms) as the explicit cell timestamp for
+		// every cell in this row.  With a server-set timestamp each SetCell lands at a
+		// fresh server clock value, so re-applying the same mutation creates a *new* cell
+		// version instead of overwriting -- non-idempotent, and google-cloud-cpp won't
+		// retry such writes.  A deterministic timestamp makes a re-applied update an exact
+		// overwrite (idempotent + safely retriable).  Bigtable cell timestamps are
+		// millisecond-granular, so last_seen (already ms) aligns exactly; it's also
+		// monotonic per member, so a later check-in always reads as the newest version.
+		const std::chrono::milliseconds cellTs(entry.last_seen);
+
 		cbt::SingleRowMutation m(row_key);
 
 		// node_info (os/arch/version) changes rarely.  Write it only when our
@@ -125,9 +136,9 @@ void BigTableStatusWriter::writePending()
 			|| ((nowMs - it->second.lastWrittenMs) > kNodeInfoRefreshMs);
 
 		if (writeNodeInfo) {
-			m.emplace_back(cbt::SetCell(nodeInfoColumnFamily, osColumn, entry.os));
-			m.emplace_back(cbt::SetCell(nodeInfoColumnFamily, archColumn, entry.arch));
-			m.emplace_back(cbt::SetCell(nodeInfoColumnFamily, versionColumn, entry.version));
+			m.emplace_back(cbt::SetCell(nodeInfoColumnFamily, osColumn, cellTs, entry.os));
+			m.emplace_back(cbt::SetCell(nodeInfoColumnFamily, archColumn, cellTs, entry.arch));
+			m.emplace_back(cbt::SetCell(nodeInfoColumnFamily, versionColumn, cellTs, entry.version));
 			_lastNodeInfo[keyHash] = NodeInfoState { valueHash, nowMs, nowMs };
 		}
 		else {
@@ -138,13 +149,12 @@ void BigTableStatusWriter::writePending()
 		char buf[64] = { 0 };
 		std::string addressStr = entry.address.toString(buf);
 		if (entry.address.ss_family == AF_INET) {
-			m.emplace_back(cbt::SetCell(checkInColumnFamily, ipv4Column, std::move(addressStr)));
+			m.emplace_back(cbt::SetCell(checkInColumnFamily, ipv4Column, cellTs, std::move(addressStr)));
 		}
 		else if (entry.address.ss_family == AF_INET6) {
-			m.emplace_back(cbt::SetCell(checkInColumnFamily, ipv6Column, std::move(addressStr)));
+			m.emplace_back(cbt::SetCell(checkInColumnFamily, ipv6Column, cellTs, std::move(addressStr)));
 		}
-		int64_t ts = entry.last_seen;
-		m.emplace_back(cbt::SetCell(checkInColumnFamily, lastSeenColumn, std::move(ts)));
+		m.emplace_back(cbt::SetCell(checkInColumnFamily, lastSeenColumn, cellTs, entry.last_seen));
 
 		bulk.emplace_back(m);
 		bulkRowHashes.push_back(keyHash);
