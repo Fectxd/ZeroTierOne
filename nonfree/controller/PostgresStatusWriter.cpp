@@ -48,7 +48,9 @@ void PostgresStatusWriter::writePending()
 	}
 
 	try {
-		auto conn = _pool->borrow();
+		// RAII guard: returns the connection to the pool on every exit path (commit,
+		// throw from pqxx::work/pipeline/commit, etc.) so a write failure can't leak it.
+		PooledConnection<PostgresConnection> conn(_pool);
 		pqxx::work w(*conn->c);
 
 		pqxx::pipeline pipe(w);
@@ -75,7 +77,7 @@ void PostgresStatusWriter::writePending()
 
 		pipe.complete();
 		w.commit();
-		_pool->unborrow(conn);
+		// conn returned to the pool by PooledConnection's destructor on scope exit.
 	}
 	catch (const std::exception& e) {
 		// Log the error

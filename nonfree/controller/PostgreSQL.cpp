@@ -15,21 +15,34 @@
 
 namespace ZeroTier {
 
-PostgresMemberListener::PostgresMemberListener(
-	DB* db,
-	std::shared_ptr<ConnectionPool<PostgresConnection> > pool,
-	const std::string& channel,
-	uint64_t timeout)
+PostgresMemberListener::PostgresMemberListener(DB* db,
+											   std::shared_ptr<ConnectionPool<PostgresConnection> > pool,
+											   const std::string& channel,
+											   uint64_t timeout)
 	: NotificationListener()
 	, _db(db)
 	, _pool(pool)
 	, _notification_timeout(timeout)
 	, _listenerThread()
+	, _channel(channel)
 {
 	_conn = _pool->borrow();
-	_receiver = new _notificationReceiver<PostgresMemberListener>(this, *_conn->c, channel);
-	_run = true;
-	_listenerThread = std::thread(&PostgresMemberListener::listen, this);
+	try {
+		_receiver = new _notificationReceiver<PostgresMemberListener>(this, *_conn->c, _channel);
+		_run = true;
+		_listenerThread = std::thread(&PostgresMemberListener::listen, this);
+	}
+	catch (...) {
+		// Roll back partial construction so the borrowed connection (and receiver) aren't leaked.
+		_run = false;
+		delete _receiver;
+		_receiver = nullptr;
+		if (_conn) {
+			_pool->unborrow(_conn);
+			_conn.reset();
+		}
+		throw;
+	}
 }
 
 PostgresMemberListener::~PostgresMemberListener()
@@ -45,19 +58,45 @@ PostgresMemberListener::~PostgresMemberListener()
 	}
 }
 
+void PostgresMemberListener::reconnect()
+{
+	// Destroy the receiver before releasing the connection it references, then rebind
+	// to a freshly borrowed (live) connection. Called when the backend connection has
+	// gone away (server restart, AlloyDB maintenance, network drop).
+	delete _receiver;
+	_receiver = nullptr;
+	if (_conn) {
+		_pool->unborrow(_conn);	  // a dead connection is discarded by the pool (alive() == false)
+		_conn.reset();
+	}
+	_conn = _pool->borrow();
+	_receiver = new _notificationReceiver<PostgresMemberListener>(this, *_conn->c, _channel);
+}
+
 void PostgresMemberListener::listen()
 {
 	while (_run) {
 		// await_notification dispatches into onNotification, which can throw on a
 		// malformed payload; libpqxx propagates that out here. An exception escaping
 		// this thread would call std::terminate and kill the whole controller, so we
-		// must catch everything. The short sleep avoids a hot spin if the connection
-		// has gone bad (full reconnect handling is tracked separately).
+		// must catch everything. A broken connection (or a failed reconnect) also lands
+		// in the catch; we drop the dead connection so the next iteration re-borrows a
+		// fresh one, backing off briefly to avoid a hot loop while the DB is unreachable.
 		try {
+			if (! _conn || ! _conn->alive()) {
+				fprintf(stderr, "PostgresMemberListener: (re)connecting listener on channel %s\n", _channel.c_str());
+				reconnect();
+			}
 			_conn->c->await_notification(_notification_timeout, 0);
 		}
 		catch (const std::exception& e) {
 			fprintf(stderr, "ERROR: exception in member notification listener: %s\n", e.what());
+			delete _receiver;
+			_receiver = nullptr;
+			if (_conn) {
+				_pool->unborrow(_conn);
+				_conn.reset();
+			}
 			std::this_thread::sleep_for(std::chrono::seconds(1));
 		}
 	}
@@ -107,21 +146,34 @@ NotificationResult PostgresMemberListener::onNotification(const std::string& pay
 	return NotificationResult::Ok;
 }
 
-PostgresNetworkListener::PostgresNetworkListener(
-	DB* db,
-	std::shared_ptr<ConnectionPool<PostgresConnection> > pool,
-	const std::string& channel,
-	uint64_t timeout)
+PostgresNetworkListener::PostgresNetworkListener(DB* db,
+												 std::shared_ptr<ConnectionPool<PostgresConnection> > pool,
+												 const std::string& channel,
+												 uint64_t timeout)
 	: NotificationListener()
 	, _db(db)
 	, _pool(pool)
 	, _notification_timeout(timeout)
 	, _listenerThread()
+	, _channel(channel)
 {
 	_conn = _pool->borrow();
-	_receiver = new _notificationReceiver<PostgresNetworkListener>(this, *_conn->c, channel);
-	_run = true;
-	_listenerThread = std::thread(&PostgresNetworkListener::listen, this);
+	try {
+		_receiver = new _notificationReceiver<PostgresNetworkListener>(this, *_conn->c, _channel);
+		_run = true;
+		_listenerThread = std::thread(&PostgresNetworkListener::listen, this);
+	}
+	catch (...) {
+		// Roll back partial construction so the borrowed connection (and receiver) aren't leaked.
+		_run = false;
+		delete _receiver;
+		_receiver = nullptr;
+		if (_conn) {
+			_pool->unborrow(_conn);
+			_conn.reset();
+		}
+		throw;
+	}
 }
 
 PostgresNetworkListener::~PostgresNetworkListener()
@@ -137,16 +189,40 @@ PostgresNetworkListener::~PostgresNetworkListener()
 	}
 }
 
+void PostgresNetworkListener::reconnect()
+{
+	// See PostgresMemberListener::reconnect.
+	delete _receiver;
+	_receiver = nullptr;
+	if (_conn) {
+		_pool->unborrow(_conn);
+		_conn.reset();
+	}
+	_conn = _pool->borrow();
+	_receiver = new _notificationReceiver<PostgresNetworkListener>(this, *_conn->c, _channel);
+}
+
 void PostgresNetworkListener::listen()
 {
 	while (_run) {
 		// See PostgresMemberListener::listen — an exception escaping this thread would
-		// terminate the controller, so everything must be caught here.
+		// terminate the controller, so everything must be caught here; a broken
+		// connection is dropped and re-borrowed on the next iteration.
 		try {
+			if (! _conn || ! _conn->alive()) {
+				fprintf(stderr, "PostgresNetworkListener: (re)connecting listener on channel %s\n", _channel.c_str());
+				reconnect();
+			}
 			_conn->c->await_notification(_notification_timeout, 0);
 		}
 		catch (const std::exception& e) {
 			fprintf(stderr, "ERROR: exception in network notification listener: %s\n", e.what());
+			delete _receiver;
+			_receiver = nullptr;
+			if (_conn) {
+				_pool->unborrow(_conn);
+				_conn.reset();
+			}
 			std::this_thread::sleep_for(std::chrono::seconds(1));
 		}
 	}

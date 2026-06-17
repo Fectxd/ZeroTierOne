@@ -232,13 +232,17 @@ class PostgresMemberListener : public NotificationListener {
 	virtual NotificationResult onNotification(const std::string& payload) override;
 
   private:
+	// Drop the dead connection/receiver and rebind to a freshly borrowed one.
+	void reconnect();
+
 	bool _run = false;
 	DB* _db;
 	std::shared_ptr<ConnectionPool<PostgresConnection> > _pool;
 	std::shared_ptr<PostgresConnection> _conn;
 	uint64_t _notification_timeout;
 	std::thread _listenerThread;
-	_notificationReceiver<PostgresMemberListener>* _receiver;
+	std::string _channel;
+	_notificationReceiver<PostgresMemberListener>* _receiver = nullptr;
 };
 
 class PostgresNetworkListener : public NotificationListener {
@@ -255,13 +259,17 @@ class PostgresNetworkListener : public NotificationListener {
 	virtual NotificationResult onNotification(const std::string& payload) override;
 
   private:
+	// Drop the dead connection/receiver and rebind to a freshly borrowed one.
+	void reconnect();
+
 	bool _run = false;
 	DB* _db;
 	std::shared_ptr<ConnectionPool<PostgresConnection> > _pool;
 	std::shared_ptr<PostgresConnection> _conn;
 	uint64_t _notification_timeout;
 	std::thread _listenerThread;
-	_notificationReceiver<PostgresNetworkListener>* _receiver;
+	std::string _channel;
+	_notificationReceiver<PostgresNetworkListener>* _receiver = nullptr;
 };
 
 }	// namespace ZeroTier

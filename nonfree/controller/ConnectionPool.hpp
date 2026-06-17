@@ -202,6 +202,48 @@ template <class T> class ConnectionPool {
 	std::mutex m_poolMutex;
 };
 
+/**
+ * RAII guard for a borrowed connection.
+ *
+ * Borrows from the pool on construction and returns it on destruction, so the
+ * connection can never be leaked on an exception path (borrow() throws rather than
+ * returning null, and unborrow() must run on every path or the pool leaks a slot).
+ * Call unborrow() to return it early; the destructor is then a no-op.
+ */
+template <class T> class PooledConnection {
+  public:
+	explicit PooledConnection(const std::shared_ptr<ConnectionPool<T> >& pool) : m_pool(pool), m_conn(pool->borrow())
+	{
+	}
+
+	~PooledConnection()
+	{ unborrow(); }
+
+	PooledConnection(const PooledConnection&) = delete;
+	PooledConnection& operator=(const PooledConnection&) = delete;
+
+	const std::shared_ptr<T>& get() const
+	{ return m_conn; }
+
+	T* operator->() const
+	{ return m_conn.get(); }
+
+	/**
+	 * Return the connection to the pool now.  Idempotent.
+	 */
+	void unborrow()
+	{
+		if (m_conn) {
+			m_pool->unborrow(m_conn);
+			m_conn.reset();
+		}
+	}
+
+  private:
+	std::shared_ptr<ConnectionPool<T> > m_pool;
+	std::shared_ptr<T> m_conn;
+};
+
 }	// namespace ZeroTier
 
 #endif
