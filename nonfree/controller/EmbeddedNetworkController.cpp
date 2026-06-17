@@ -1842,7 +1842,16 @@ void EmbeddedNetworkController::_request(
 	if (networkSSOEnabled && ! memberSSOExempt) {
 		authenticationExpiryTime = (int64_t)OSUtils::jsonInt(member["authenticationExpiryTime"], 0);
 		info = _db.getSSOAuthInfo(member, _ssoRedirectURL);
-		assert(info.enabled == networkSSOEnabled);
+		if (info.enabled != networkSSOEnabled) {
+			// The network requests SSO but the controller produced no SSO auth info
+			// (controller SSO globally disabled, or a transient DB anomaly). Fail closed
+			// — the member is treated as needing authentication — rather than asserting
+			// and taking down the entire controller process.
+			fprintf(stderr,
+					"WARNING: network %.16llx has SSO enabled but no SSO auth info was returned; treating member as "
+					"unauthorized\n",
+					(unsigned long long)nwid);
+		}
 		if (authenticationExpiryTime <= now) {
 			if (info.version == 0) {
 				Dictionary<4096> authInfo;
@@ -2361,7 +2370,7 @@ void EmbeddedNetworkController::_request(
 
 	if (dns.is_object()) {
 		std::string domain = OSUtils::jsonString(dns["domain"], "");
-		memcpy(nc->dns.domain, domain.c_str(), domain.size());
+		Utils::scopy(nc->dns.domain, sizeof(nc->dns.domain), domain.c_str());
 		json& addrArray = dns["servers"];
 		if (addrArray.is_array()) {
 			for (unsigned int j = 0; j < addrArray.size() && j < ZT_MAX_DNS_SERVERS; ++j) {

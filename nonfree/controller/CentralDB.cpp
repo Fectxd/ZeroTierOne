@@ -445,7 +445,6 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 		std::string networkId = member["nwid"];
 		std::string memberId = member["id"];
 
-		char authenticationURL[4096] = { 0 };
 		AuthInfo info;
 		info.enabled = true;
 		std::shared_ptr<PostgresConnection> c;
@@ -515,9 +514,13 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 						}
 					}
 					else {
-						// > 1 ?!?  Thats an error!
-						fprintf(stderr, "> 1 unused nonce!\n");
-						exit(6);
+						// > 1 unused nonce is a data anomaly (e.g. a race inserting nonces).
+						// Abort and bail out gracefully rather than killing the controller process.
+						fprintf(stderr, "> 1 unused nonce for network member!\n");
+						span->SetStatus(opentelemetry::trace::StatusCode::kError, "more than one unused nonce");
+						w.abort();
+						_pool->unborrow(c);
+						return AuthInfo();
 					}
 				}
 				else if (r.size() == 1) {
@@ -525,9 +528,13 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 					Utils::unhex(nonce.c_str(), nonceBytes, sizeof(nonceBytes));
 				}
 				else {
-					// more than 1 nonce in use?  Uhhh...
+					// more than 1 active nonce is a data anomaly. Abort and bail out
+					// gracefully rather than killing the controller process.
 					fprintf(stderr, "> 1 nonce in use for network member?!?\n");
-					exit(7);
+					span->SetStatus(opentelemetry::trace::StatusCode::kError, "more than one active nonce");
+					w.abort();
+					_pool->unborrow(c);
+					return AuthInfo();
 				}
 
 				r = w.exec(
@@ -584,9 +591,9 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 					Utils::hex(state, 48, state_hex);
 
 					if (info.version == 0) {
-						char url[2048] = { 0 };
+						char url[4096] = { 0 };
 						OSUtils::ztsnprintf(
-							url, sizeof(authenticationURL),
+							url, sizeof(url),
 							"%s?response_type=id_token&response_mode=form_post&scope=openid+email+profile&redirect_uri="
 							"%s&nonce=%s&state=%s&client_id=%s",
 							authorization_endpoint.c_str(), url_encode(ssoRedirectURL).c_str(), nonce.c_str(),

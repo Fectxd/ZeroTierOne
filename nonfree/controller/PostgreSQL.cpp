@@ -8,7 +8,10 @@
 
 #include "opentelemetry/trace/provider.h"
 
+#include <chrono>
+#include <cstdio>
 #include <nlohmann/json.hpp>
+#include <thread>
 
 namespace ZeroTier {
 
@@ -45,7 +48,18 @@ PostgresMemberListener::~PostgresMemberListener()
 void PostgresMemberListener::listen()
 {
 	while (_run) {
-		_conn->c->await_notification(_notification_timeout, 0);
+		// await_notification dispatches into onNotification, which can throw on a
+		// malformed payload; libpqxx propagates that out here. An exception escaping
+		// this thread would call std::terminate and kill the whole controller, so we
+		// must catch everything. The short sleep avoids a hot spin if the connection
+		// has gone bad (full reconnect handling is tracked separately).
+		try {
+			_conn->c->await_notification(_notification_timeout, 0);
+		}
+		catch (const std::exception& e) {
+			fprintf(stderr, "ERROR: exception in member notification listener: %s\n", e.what());
+			std::this_thread::sleep_for(std::chrono::seconds(1));
+		}
 	}
 }
 
@@ -58,30 +72,37 @@ bool PostgresMemberListener::onNotification(const std::string& payload)
 	span->SetAttribute("payload", payload);
 
 	Metrics::pgsql_mem_notification++;
-	nlohmann::json tmp(nlohmann::json::parse(payload));
-	nlohmann::json& ov = tmp["old_val"];
-	nlohmann::json& nv = tmp["new_val"];
-	nlohmann::json oldConfig, newConfig;
-	if (ov.is_object())
-		oldConfig = ov;
-	if (nv.is_object())
-		newConfig = nv;
+	try {
+		nlohmann::json tmp(nlohmann::json::parse(payload));
+		nlohmann::json& ov = tmp["old_val"];
+		nlohmann::json& nv = tmp["new_val"];
+		nlohmann::json oldConfig, newConfig;
+		if (ov.is_object())
+			oldConfig = ov;
+		if (nv.is_object())
+			newConfig = nv;
 
-	if (oldConfig.is_object() && newConfig.is_object()) {
-		_db->save(newConfig, true);
-	}
-	else if (newConfig.is_object() && ! oldConfig.is_object()) {
-		// new member
-		Metrics::member_count++;
-		_db->save(newConfig, true);
-	}
-	else if (! newConfig.is_object() && oldConfig.is_object()) {
-		// member delete
-		uint64_t networkId = OSUtils::jsonIntHex(oldConfig["nwid"], 0ULL);
-		uint64_t memberId = OSUtils::jsonIntHex(oldConfig["id"], 0ULL);
-		if (memberId && networkId) {
-			_db->eraseMember(networkId, memberId);
+		if (oldConfig.is_object() && newConfig.is_object()) {
+			_db->save(newConfig, true);
 		}
+		else if (newConfig.is_object() && ! oldConfig.is_object()) {
+			// new member
+			Metrics::member_count++;
+			_db->save(newConfig, true);
+		}
+		else if (! newConfig.is_object() && oldConfig.is_object()) {
+			// member delete
+			uint64_t networkId = OSUtils::jsonIntHex(oldConfig["nwid"], 0ULL);
+			uint64_t memberId = OSUtils::jsonIntHex(oldConfig["id"], 0ULL);
+			if (memberId && networkId) {
+				_db->eraseMember(networkId, memberId);
+			}
+		}
+	}
+	catch (const std::exception& e) {
+		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
+		fprintf(stderr, "ERROR: exception handling member notification: %s\n", e.what());
+		return false;
 	}
 	return true;
 }
@@ -119,7 +140,15 @@ PostgresNetworkListener::~PostgresNetworkListener()
 void PostgresNetworkListener::listen()
 {
 	while (_run) {
-		_conn->c->await_notification(_notification_timeout, 0);
+		// See PostgresMemberListener::listen — an exception escaping this thread would
+		// terminate the controller, so everything must be caught here.
+		try {
+			_conn->c->await_notification(_notification_timeout, 0);
+		}
+		catch (const std::exception& e) {
+			fprintf(stderr, "ERROR: exception in network notification listener: %s\n", e.what());
+			std::this_thread::sleep_for(std::chrono::seconds(1));
+		}
 	}
 }
 
@@ -132,40 +161,47 @@ bool PostgresNetworkListener::onNotification(const std::string& payload)
 	span->SetAttribute("payload", payload);
 
 	Metrics::pgsql_net_notification++;
-	nlohmann::json tmp(nlohmann::json::parse(payload));
+	try {
+		nlohmann::json tmp(nlohmann::json::parse(payload));
 
-	nlohmann::json& ov = tmp["old_val"];
-	nlohmann::json& nv = tmp["new_val"];
-	nlohmann::json oldConfig, newConfig;
+		nlohmann::json& ov = tmp["old_val"];
+		nlohmann::json& nv = tmp["new_val"];
+		nlohmann::json oldConfig, newConfig;
 
-	if (ov.is_object())
-		oldConfig = ov;
-	if (nv.is_object())
-		newConfig = nv;
+		if (ov.is_object())
+			oldConfig = ov;
+		if (nv.is_object())
+			newConfig = nv;
 
-	if (oldConfig.is_object() && newConfig.is_object()) {
-		std::string nwid = oldConfig["id"];
-		span->SetAttribute("action", "network_change");
-		span->SetAttribute("network_id", nwid);
-		_db->save(newConfig, true);
-	}
-	else if (newConfig.is_object() && ! oldConfig.is_object()) {
-		std::string nwid = newConfig["id"];
-		span->SetAttribute("network_id", nwid);
-		span->SetAttribute("action", "new_network");
-		// new network
-		_db->save(newConfig, true);
-	}
-	else if (! newConfig.is_object() && oldConfig.is_object()) {
-		// network delete
-		span->SetAttribute("action", "delete_network");
-		std::string nwid = oldConfig["id"];
-		span->SetAttribute("network_id", nwid);
-		uint64_t networkId = Utils::hexStrToU64(nwid.c_str());
-		span->SetAttribute("network_id_int", networkId);
-		if (networkId) {
-			_db->eraseNetwork(networkId);
+		if (oldConfig.is_object() && newConfig.is_object()) {
+			std::string nwid = oldConfig["id"];
+			span->SetAttribute("action", "network_change");
+			span->SetAttribute("network_id", nwid);
+			_db->save(newConfig, true);
 		}
+		else if (newConfig.is_object() && ! oldConfig.is_object()) {
+			std::string nwid = newConfig["id"];
+			span->SetAttribute("network_id", nwid);
+			span->SetAttribute("action", "new_network");
+			// new network
+			_db->save(newConfig, true);
+		}
+		else if (! newConfig.is_object() && oldConfig.is_object()) {
+			// network delete
+			span->SetAttribute("action", "delete_network");
+			std::string nwid = oldConfig["id"];
+			span->SetAttribute("network_id", nwid);
+			uint64_t networkId = Utils::hexStrToU64(nwid.c_str());
+			span->SetAttribute("network_id_int", networkId);
+			if (networkId) {
+				_db->eraseNetwork(networkId);
+			}
+		}
+	}
+	catch (const std::exception& e) {
+		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
+		fprintf(stderr, "ERROR: exception handling network notification: %s\n", e.what());
+		return false;
 	}
 	return true;
 }
