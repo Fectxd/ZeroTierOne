@@ -57,6 +57,13 @@ struct ConnectionPoolStats {
 
 template <class T> class ConnectionPool {
   public:
+	/**
+	 * @param max_pool_size    hard cap on live connections (idle + borrowed).
+	 * @param min_pool_size    connections pre-created up front and replenished on borrow().
+	 * @param factory          creates new connections on demand.
+	 * @param borrow_timeout_ms how long borrow() blocks for a free slot once at capacity
+	 *   before throwing ConnectionUnavailable.  0 restores the old fail-fast behavior.
+	 */
 	ConnectionPool(size_t max_pool_size,
 				   size_t min_pool_size,
 				   std::shared_ptr<ConnectionFactory> factory,
@@ -88,12 +95,22 @@ template <class T> class ConnectionPool {
 	~ConnectionPool() {};
 
 	/**
-	 * Borrow
+	 * Borrow a connection for temporary use.
 	 *
-	 * Borrow a connection for temporary use
+	 * Hands out an idle connection if one is available, otherwise creates a new one while
+	 * under max_pool_size.  At capacity it first tries to reclaim an abandoned connection
+	 * (one only the pool still references), then blocks until an unborrow() frees a slot or
+	 * the borrow timeout elapses.  Dead connections (alive() == false) are discarded and
+	 * replaced rather than handed out, so the pool recovers after the database drops every
+	 * connection (e.g. an AlloyDB maintenance restart).
 	 *
-	 * When done, either (a) call unborrow() to return it, or (b) (if it's bad) just let it go out of scope.  This will cause it to automatically be replaced.
-	 * @retval a shared_ptr to the connection object
+	 * When done, either call unborrow() to return it (safe even if it went bad), or just let
+	 * it go out of scope -- an abandoned connection is reclaimed and replaced on a later
+	 * borrow().  Prefer PooledConnection for exception safety.
+	 *
+	 * @throws ConnectionUnavailable if the borrow timeout elapses with no slot free, or if
+	 *   creating a new connection fails.
+	 * @return a shared_ptr to the connection object
 	 */
 	std::shared_ptr<T> borrow()
 	{
@@ -189,10 +206,14 @@ template <class T> class ConnectionPool {
 	};
 
 	/**
-	 * Unborrow a connection
+	 * Return a borrowed connection to the pool.
 	 *
-	 * Only call this if you are returning a working connection.  If the connection was bad, just let it go out of scope (so the connection manager can replace it).
-	 * @param the connection
+	 * Safe to call regardless of the connection's health: only live connections
+	 * (alive() == true) are placed back in the idle pool, while a dead one is dropped so its
+	 * slot is replaced with a fresh connection on the next borrow().  Wakes one waiter
+	 * blocked in borrow().
+	 *
+	 * @param conn the connection previously obtained from borrow()
 	 */
 	void unborrow(std::shared_ptr<T> conn)
 	{
