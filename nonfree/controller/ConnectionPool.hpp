@@ -131,7 +131,7 @@ template <class T> class ConnectionPool {
 			}
 			else {
 				for (auto it = m_borrowed.begin(); it != m_borrowed.end(); ++it) {
-					if ((*it).unique()) {
+					if (it->use_count() == 1) {
 						// This connection has been abandoned! Destroy it and create a new connection
 						try {
 							// If we are able to create a new connection, return it

@@ -123,7 +123,8 @@ void RedisStatusWriter::_doWritePending(sw::redis::Transaction& tx, const std::v
 			sw::redis::RightBoundedInterval<double>(expireOld, sw::redis::BoundType::LEFT_OPEN));
 	}
 
-	fprintf(stderr, "%s: Updated online status of %d members\n", _controller_id.c_str(), updateCount);
+	fprintf(stderr, "%s: Updated online status of %llu members\n", _controller_id.c_str(),
+			(unsigned long long)updateCount);
 	tx.exec();
 }
 

@@ -134,8 +134,6 @@ CentralDB::CentralDB(const Identity& myId,
 		}
 	}
 
-	_readyLock.lock();
-
 	fprintf(stderr, "[%s] NOTICE: %.10llx controller PostgreSQL waiting for initial data download..." ZT_EOL_S,
 			::_timestr(), (unsigned long long)_myAddress.toInt());
 	_waitNoticePrinted = true;
@@ -264,10 +262,10 @@ CentralDB::~CentralDB()
 
 bool CentralDB::waitForReady()
 {
-	while (_ready < 2) {
-		_readyLock.lock();
-		_readyLock.unlock();
-	}
+	// Block until the initial data download has completed (both initializeNetworks and
+	// initializeMembers have run), rather than busy-spinning on a mutex.
+	std::unique_lock<std::mutex> l(_readyLock);
+	_readyCv.wait(l, [this] { return _ready.load() >= 2; });
 	return true;
 }
 
@@ -375,9 +373,9 @@ void CentralDB::eraseNetwork(const uint64_t networkId)
 	auto propagator = opentelemetry::context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
 	propagator->Inject(carrier, current_ctx);
 	_commitQueue.post(qi);
-
-	nlohmann::json nullJson;
-	_networkChanged(qi.jsonData, nullJson, true);
+	// The commit thread fires _networkChanged once with the real (cached) old config when
+	// it processes the _delete_network item, so we don't notify here — doing so would
+	// double-notify listeners (and double-decrement metrics) with only a stub config.
 }
 
 void CentralDB::eraseMember(const uint64_t networkId, const uint64_t memberId)
@@ -403,9 +401,9 @@ void CentralDB::eraseMember(const uint64_t networkId, const uint64_t memberId)
 	auto propagator = opentelemetry::context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
 	propagator->Inject(carrier, current_ctx);
 	_commitQueue.post(qi);
-
-	nlohmann::json nullJson;
-	_memberChanged(qi.jsonData, nullJson, true);
+	// The commit thread fires _memberChanged once with the real (cached) old config when
+	// it processes the _delete_member item, so we don't notify here — doing so would
+	// double-notify listeners (and double-decrement metrics) with only a stub config.
 }
 
 void CentralDB::nodeIsOnline(const uint64_t networkId,
@@ -784,7 +782,8 @@ void CentralDB::initializeNetworks()
 				fprintf(stderr, "[%s] NOTICE: %.10llx controller PostgreSQL data download complete." ZT_EOL_S,
 						_timestr(), (unsigned long long)_myAddress.toInt());
 			}
-			_readyLock.unlock();
+			std::lock_guard<std::mutex> l(_readyLock);
+			_readyCv.notify_all();
 		}
 		fprintf(stderr, "network init done\n");
 	}
@@ -1039,7 +1038,8 @@ void CentralDB::initializeMembers()
 				fprintf(stderr, "[%s] NOTICE: %.10llx controller PostgreSQL data download complete." ZT_EOL_S,
 						_timestr(), (unsigned long long)_myAddress.toInt());
 			}
-			_readyLock.unlock();
+			std::lock_guard<std::mutex> l(_readyLock);
+			_readyCv.notify_all();
 		}
 	}
 	catch (sw::redis::Error& e) {

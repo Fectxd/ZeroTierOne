@@ -18,6 +18,7 @@
 #include "PostgreSQL.hpp"
 #include "StatusWriter.hpp"
 
+#include <condition_variable>
 #include <memory>
 #include <pqxx/pqxx>
 #include <sw/redis++/redis++.h>
@@ -137,6 +138,7 @@ class CentralDB : public DB {
 
 	mutable std::mutex _lastOnline_l;
 	mutable std::mutex _readyLock;
+	std::condition_variable _readyCv;	// signaled once _ready reaches 2 (initial load complete)
 	std::atomic<int> _ready, _connected, _run;
 	mutable volatile bool _waitNoticePrinted;
 
