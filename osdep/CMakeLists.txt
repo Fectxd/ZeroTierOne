@@ -63,6 +63,22 @@ if(WIN32)
         WinFWHelper.hpp)
 endif()
 
+# FreeBSD and OpenBSD share the same tap implementation (BSDEthernetTap), matching
+# EthernetTap.cpp's #ifdef __FreeBSD__/__OpenBSD__ factory branches and make-bsd.mk.
+# Use CMAKE_SYSTEM_NAME rather than a builtin like LINUX (which only exists on CMake
+# >= 3.25); see the top-level CMakeLists.txt platform-code block.
+if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD" OR CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
+    list(APPEND SRC_FILES
+        BSDEthernetTap.cpp
+        BSDEthernetTap.hpp)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
+    list(APPEND SRC_FILES
+        NetBSDEthernetTap.cpp
+        NetBSDEthernetTap.hpp)
+endif()
+
 add_library(zerotier-osdep STATIC ${SRC_FILES})
 target_link_libraries(zerotier-osdep
     PRIVATE 
