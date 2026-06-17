@@ -12,6 +12,8 @@
 #include "../../node/Metrics.hpp"
 #include "opentelemetry/trace/provider.h"
 
+#include <chrono>
+#include <condition_variable>
 #include <deque>
 #include <exception>
 #include <memory>
@@ -55,7 +57,14 @@ struct ConnectionPoolStats {
 
 template <class T> class ConnectionPool {
   public:
-	ConnectionPool(size_t max_pool_size, size_t min_pool_size, std::shared_ptr<ConnectionFactory> factory) : m_maxPoolSize(max_pool_size), m_minPoolSize(min_pool_size), m_factory(factory)
+	ConnectionPool(size_t max_pool_size,
+				   size_t min_pool_size,
+				   std::shared_ptr<ConnectionFactory> factory,
+				   unsigned long borrow_timeout_ms = 5000)
+		: m_maxPoolSize(max_pool_size)
+		, m_minPoolSize(min_pool_size)
+		, m_borrowTimeout(borrow_timeout_ms)
+		, m_factory(factory)
 	{
 		Metrics::max_pool_size += max_pool_size;
 		Metrics::min_pool_size += min_pool_size;
@@ -95,27 +104,44 @@ template <class T> class ConnectionPool {
 
 		std::unique_lock<std::mutex> l(m_poolMutex);
 
-		// Discard any dead connections sitting idle in the pool so we never hand
-		// one out.  This forces the size checks below to replenish with fresh
-		// connections, which is what lets the pool recover after the DB server
-		// drops every connection (e.g. an AlloyDB maintenance restart).
-		for (auto it = m_pool.begin(); it != m_pool.end();) {
-			if (! (*it)->alive()) {
-				it = m_pool.erase(it);
+		// Block (rather than fail immediately) until a connection becomes available or
+		// the borrow timeout elapses. Connections are reliably returned via unborrow(),
+		// so a brief wait absorbs transient bursts above the pool size instead of
+		// throwing. A zero timeout reproduces the old fail-fast behavior.
+		const std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + m_borrowTimeout;
+
+		for (;;) {
+			// Discard any dead connections sitting idle in the pool so we never hand
+			// one out.  This forces the size checks below to replenish with fresh
+			// connections, which is what lets the pool recover after the DB server
+			// drops every connection (e.g. an AlloyDB maintenance restart).
+			for (auto it = m_pool.begin(); it != m_pool.end();) {
+				if (! (*it)->alive()) {
+					it = m_pool.erase(it);
+					Metrics::pool_avail--;
+				}
+				else {
+					++it;
+				}
+			}
+
+			while ((m_pool.size() + m_borrowed.size()) < m_minPoolSize) {
+				std::shared_ptr<Connection> conn = m_factory->create();
+				m_pool.push_back(conn);
+				Metrics::pool_avail++;
+			}
+
+			// An idle connection is available: hand out the front of the pool.
+			if (! m_pool.empty()) {
+				std::shared_ptr<Connection> conn = m_pool.front();
+				m_pool.pop_front();
 				Metrics::pool_avail--;
+				m_borrowed.insert(conn);
+				Metrics::pool_in_use++;
+				return std::static_pointer_cast<T>(conn);
 			}
-			else {
-				++it;
-			}
-		}
 
-		while ((m_pool.size() + m_borrowed.size()) < m_minPoolSize) {
-			std::shared_ptr<Connection> conn = m_factory->create();
-			m_pool.push_back(conn);
-			Metrics::pool_avail++;
-		}
-
-		if (m_pool.size() == 0) {
+			// No idle connection but we're under the cap: create a fresh one.
 			if ((m_pool.size() + m_borrowed.size()) < m_maxPoolSize) {
 				try {
 					std::shared_ptr<Connection> conn = m_factory->create();
@@ -129,42 +155,37 @@ template <class T> class ConnectionPool {
 					throw ConnectionUnavailable();
 				}
 			}
-			else {
-				for (auto it = m_borrowed.begin(); it != m_borrowed.end(); ++it) {
-					if (it->use_count() == 1) {
-						// This connection has been abandoned! Destroy it and create a new connection
-						try {
-							// If we are able to create a new connection, return it
-							_DEBUG("Creating new connection to replace discarded connection");
-							std::shared_ptr<Connection> conn = m_factory->create();
-							m_borrowed.erase(it);
-							m_borrowed.insert(conn);
-							return std::static_pointer_cast<T>(conn);
-						}
-						catch (std::exception& e) {
-							span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-							// Error creating a replacement connection
-							Metrics::pool_errors++;
-							throw ConnectionUnavailable();
-						}
+
+			// At capacity: reclaim an abandoned connection (one only the pool still
+			// references) if there is one.
+			for (auto it = m_borrowed.begin(); it != m_borrowed.end(); ++it) {
+				if (it->use_count() == 1) {
+					// This connection has been abandoned! Destroy it and create a new connection
+					try {
+						_DEBUG("Creating new connection to replace discarded connection");
+						std::shared_ptr<Connection> conn = m_factory->create();
+						m_borrowed.erase(it);
+						m_borrowed.insert(conn);
+						return std::static_pointer_cast<T>(conn);
+					}
+					catch (std::exception& e) {
+						span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
+						// Error creating a replacement connection
+						Metrics::pool_errors++;
+						throw ConnectionUnavailable();
 					}
 				}
+			}
 
-				span->SetStatus(opentelemetry::trace::StatusCode::kError, "No available connections in pool");
-				// Nothing available
+			// Everything is in active use. Wait for an unborrow() to free a slot, then
+			// retry. Give up (throw, as before) once the deadline passes.
+			if (m_cond.wait_until(l, deadline) == std::cv_status::timeout) {
+				span->SetStatus(opentelemetry::trace::StatusCode::kError,
+								"Timed out waiting for an available connection");
 				Metrics::pool_errors++;
 				throw ConnectionUnavailable();
 			}
 		}
-
-		// Take one off the front
-		std::shared_ptr<Connection> conn = m_pool.front();
-		m_pool.pop_front();
-		Metrics::pool_avail--;
-		// Add it to the borrowed list
-		m_borrowed.insert(conn);
-		Metrics::pool_in_use++;
-		return std::static_pointer_cast<T>(conn);
 	};
 
 	/**
@@ -191,15 +212,20 @@ template <class T> class ConnectionPool {
 			Metrics::pool_avail++;
 			m_pool.push_back(conn);
 		}
+		// A borrowed slot just freed up (and possibly an idle connection too); wake one
+		// waiter blocked in borrow().
+		m_cond.notify_one();
 	};
 
   protected:
 	size_t m_maxPoolSize;
 	size_t m_minPoolSize;
+	std::chrono::milliseconds m_borrowTimeout;
 	std::shared_ptr<ConnectionFactory> m_factory;
 	std::deque<std::shared_ptr<Connection> > m_pool;
 	std::set<std::shared_ptr<Connection> > m_borrowed;
 	std::mutex m_poolMutex;
+	std::condition_variable m_cond;
 };
 
 /**

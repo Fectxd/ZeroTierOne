@@ -459,9 +459,8 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 
 		AuthInfo info;
 		info.enabled = true;
-		std::shared_ptr<PostgresConnection> c;
 		try {
-			c = _pool->borrow();
+			PooledConnection<PostgresConnection> c(_pool);
 			pqxx::work w(*c->c);
 
 			char nonceBytes[16] = { 0 };
@@ -531,7 +530,6 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 						fprintf(stderr, "> 1 unused nonce for network member!\n");
 						span->SetStatus(opentelemetry::trace::StatusCode::kError, "more than one unused nonce");
 						w.abort();
-						_pool->unborrow(c);
 						return AuthInfo();
 					}
 				}
@@ -545,7 +543,6 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 					fprintf(stderr, "> 1 nonce in use for network member?!?\n");
 					span->SetStatus(opentelemetry::trace::StatusCode::kError, "more than one active nonce");
 					w.abort();
-					_pool->unborrow(c);
 					return AuthInfo();
 				}
 
@@ -635,14 +632,11 @@ AuthInfo CentralDB::getSSOAuthInfo(const nlohmann::json& member, const std::stri
 				}
 			}
 			w.commit();
-			_pool->unborrow(c);
+			// c (PooledConnection) returns the connection to the pool on scope exit.
 		}
 		catch (std::exception& e) {
 			span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 			fprintf(stderr, "ERROR: Error updating member on load for network %s: %s\n", networkId.c_str(), e.what());
-			if (c) {
-				_pool->unborrow(c);
-			}
 		}
 
 		return info;   // std::string(authenticationURL);
@@ -667,7 +661,7 @@ void CentralDB::initializeNetworks()
 				"FROM networks_ctl WHERE controller_id = '%s'",
 				_myAddressStr.c_str());
 
-		auto c = _pool->borrow();
+		PooledConnection<PostgresConnection> c(_pool);
 		pqxx::work w(*c->c);
 
 		fprintf(stderr, "Load networks from psql...\n");
@@ -774,7 +768,7 @@ void CentralDB::initializeNetworks()
 		}
 
 		w.commit();
-		_pool->unborrow(c);
+		// c (PooledConnection) returns the connection to the pool on scope exit.
 		fprintf(stderr, "done.\n");
 
 		if (++this->_ready == 2) {
@@ -862,7 +856,7 @@ void CentralDB::initializeMembers()
 				"WHERE n.controller_id = '%s'",
 				_myAddressStr.c_str());
 
-		auto c = _pool->borrow();
+		PooledConnection<PostgresConnection> c(_pool);
 		pqxx::work w(*c->c);
 		fprintf(stderr, "Load members from psql...\n");
 		auto stream = pqxx::stream_from::query(w, qbuf);
@@ -996,7 +990,7 @@ void CentralDB::initializeMembers()
 		stream.complete();
 
 		w.commit();
-		_pool->unborrow(c);
+		// c (PooledConnection) returns the connection to the pool on scope exit.
 		fprintf(stderr, "done.\n");
 
 		if (_listenerMode == LISTENER_MODE_REDIS)
@@ -1081,7 +1075,7 @@ void CentralDB::heartbeat()
 		auto scope = tracer->WithActiveSpan(span);
 
 		// fprintf(stderr, "%s: heartbeat\n", controllerId);
-		auto c = _pool->borrow();
+		PooledConnection<PostgresConnection> c(_pool);
 		int64_t ts = OSUtils::now();
 
 		if (c->c) {
@@ -1106,13 +1100,13 @@ void CentralDB::heartbeat()
 			}
 			catch (std::exception& e) {
 				fprintf(stderr, "%s: Heartbeat update failed: %s\n", controllerId, e.what());
-				_pool->unborrow(c);
+				c.unborrow();
 				span->End();
 				std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 				continue;
 			}
 		}
-		_pool->unborrow(c);
+		c.unborrow();
 
 		try {
 			if (_listenerMode == LISTENER_MODE_REDIS && _redisMemberStatus) {

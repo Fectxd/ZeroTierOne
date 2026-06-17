@@ -740,9 +740,8 @@ NotificationResult PubSubSSOListener::onNotification(const std::string& payload)
 	span->SetAttribute("device_id", deviceId);
 	span->SetAttribute("nonce", nonce);
 
-	std::shared_ptr<PostgresConnection> c;
 	try {
-		c = _pool->borrow();
+		PooledConnection<PostgresConnection> c(_pool);
 		pqxx::work w(*c->c);
 
 		// Verify network exists and log its frontend for traceability
@@ -753,7 +752,6 @@ NotificationResult PubSubSSOListener::onNotification(const std::string& payload)
 			fprintf(stderr, "PubSubSSOListener: ignoring auth update for unknown network=%s\n",
 				networkId.c_str());
 			w.abort();
-			_pool->unborrow(c);
 			return NotificationResult::Ok;	 // ack — no point redelivering for a nonexistent network
 		}
 		std::string frontend = fr.at(0)[0].as<std::optional<std::string> >().value_or("");
@@ -772,17 +770,13 @@ NotificationResult PubSubSSOListener::onNotification(const std::string& payload)
 				stderr, "PubSubSSOListener: no sso_expiry row matched for nonce=%s network=%s device=%s\n",
 				nonce.c_str(), networkId.c_str(), deviceId.c_str());
 		}
-
-		_pool->unborrow(c);
+		// c (PooledConnection) returns the connection to the pool on scope exit.
 	}
 	catch (std::exception& e) {
 		// Pool exhaustion / DB error — retryable. Nack so the auth update is redelivered
 		// rather than silently lost (a lost SSO auth-expiry update is security-relevant).
 		fprintf(stderr, "PubSubSSOListener: error updating sso_expiry: %s\n", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-		if (c) {
-			_pool->unborrow(c);
-		}
 		return NotificationResult::TransientFailure;
 	}
 
