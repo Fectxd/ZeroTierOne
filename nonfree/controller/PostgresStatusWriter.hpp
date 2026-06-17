@@ -1,3 +1,7 @@
+/* (c) ZeroTier, Inc.
+ * See LICENSE.txt in nonfree/
+ */
+
 #ifndef POSTGRES_STATUS_WRITER_HPP
 #define POSTGRES_STATUS_WRITER_HPP
 

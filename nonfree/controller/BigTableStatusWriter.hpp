@@ -1,3 +1,7 @@
+/* (c) ZeroTier, Inc.
+ * See LICENSE.txt in nonfree/
+ */
+
 #ifndef BIGTABLESTATUSWRITER_HPP
 #define BIGTABLESTATUSWRITER_HPP
 

@@ -1,3 +1,7 @@
+/* (c) ZeroTier, Inc.
+ * See LICENSE.txt in nonfree/
+ */
+
 #ifdef ZT_CONTROLLER_USE_LIBPQ
 
 #ifndef ZT_CONTROLLER_REDIS_LISTENER_HPP

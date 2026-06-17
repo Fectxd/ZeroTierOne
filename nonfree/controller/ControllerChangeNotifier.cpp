@@ -1,3 +1,7 @@
+/* (c) ZeroTier, Inc.
+ * See LICENSE.txt in nonfree/
+ */
+
 #include "ControllerChangeNotifier.hpp"
 
 #include "PubSubWriter.hpp"

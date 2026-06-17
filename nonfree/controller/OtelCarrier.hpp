@@ -1,3 +1,7 @@
+/* (c) ZeroTier, Inc.
+ * See LICENSE.txt in nonfree/
+ */
+
 #ifndef OTEL_CARRIER_HPP
 #define OTEL_CARRIER_HPP
 

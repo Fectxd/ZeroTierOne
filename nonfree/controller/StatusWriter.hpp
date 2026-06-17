@@ -1,3 +1,7 @@
+/* (c) ZeroTier, Inc.
+ * See LICENSE.txt in nonfree/
+ */
+
 #ifndef STATUS_WRITER_HPP
 #define STATUS_WRITER_HPP
 

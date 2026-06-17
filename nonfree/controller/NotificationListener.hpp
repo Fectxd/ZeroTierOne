@@ -1,3 +1,7 @@
+/* (c) ZeroTier, Inc.
+ * See LICENSE.txt in nonfree/
+ */
+
 #ifndef NOTIFICATION_LISTENER_HPP
 #define NOTIFICATION_LISTENER_HPP
 

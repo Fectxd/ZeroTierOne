@@ -1,3 +1,7 @@
+/* (c) ZeroTier, Inc.
+ * See LICENSE.txt in nonfree/
+ */
+
 #include "BigTableStatusWriter.hpp"
 
 #include "../../osdep/OSUtils.hpp"

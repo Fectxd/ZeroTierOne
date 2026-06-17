@@ -1,3 +1,7 @@
+/* (c) ZeroTier, Inc.
+ * See LICENSE.txt in nonfree/
+ */
+
 #ifndef CONTROLLERCHANGENOTIFIER_HPP
 #define CONTROLLERCHANGENOTIFIER_HPP
 

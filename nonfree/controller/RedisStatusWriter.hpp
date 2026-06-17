@@ -1,3 +1,7 @@
+/* (c) ZeroTier, Inc.
+ * See LICENSE.txt in nonfree/
+ */
+
 #ifndef REDIS_STATUS_WRITER_HPP
 #define REDIS_STATUS_WRITER_HPP
 

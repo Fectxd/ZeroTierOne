@@ -1,3 +1,7 @@
+/* (c) ZeroTier, Inc.
+ * See LICENSE.txt in nonfree/
+ */
+
 #ifndef CONTROLLER_CONFIG_HPP
 #define CONTROLLER_CONFIG_HPP
 
