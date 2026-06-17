@@ -92,12 +92,15 @@ void PubSubListener::subscribe()
 
 			auto session = _subscriber->Subscribe([this](pubsub::Message const& m, pubsub::AckHandler h) {
 				_lastMessageTime.store(std::chrono::steady_clock::now());
+				// Default to transient: if anything throws before onNotification reports an
+				// outcome, redeliver rather than silently dropping the change.
+				NotificationResult result = NotificationResult::TransientFailure;
 				try {
 					auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 					auto tracer = provider->GetTracer("PubSubListener");
 
-					auto propagator = opentelemetry::context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
-					auto attrs = m.attributes();
+					auto propagator =
+						opentelemetry::context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
 					std::map<std::string, std::string> attrs_map;
 					for (auto const& kv : m.attributes()) {
 						attrs_map.emplace(kv.first, kv.second);
@@ -116,25 +119,51 @@ void PubSubListener::subscribe()
 						span->SetAttribute("message_id", m.message_id());
 						span->SetAttribute("ordering_key", m.ordering_key());
 
-						if (onNotification(m.data())) {
-							span->SetStatus(opentelemetry::trace::StatusCode::kOk);
-						}
-						else {
-							fprintf(stderr, "onNotification failed for message %s (ordering_key=%s); acking to avoid poison pill\n",
-								m.message_id().c_str(), m.ordering_key().c_str());
-							span->SetStatus(opentelemetry::trace::StatusCode::kError, "onNotification failed");
+						result = onNotification(m.data());
+						switch (result) {
+							case NotificationResult::Ok:
+								span->SetStatus(opentelemetry::trace::StatusCode::kOk);
+								break;
+							case NotificationResult::PermanentFailure:
+								fprintf(stderr,
+										"PubSubListener: permanent failure for message %s (ordering_key=%s); acking to "
+										"drop\n",
+										m.message_id().c_str(), m.ordering_key().c_str());
+								span->SetStatus(opentelemetry::trace::StatusCode::kError,
+												"permanent failure; dropping");
+								break;
+							case NotificationResult::TransientFailure:
+								fprintf(stderr,
+										"PubSubListener: transient failure for message %s (ordering_key=%s); nacking "
+										"for redelivery\n",
+										m.message_id().c_str(), m.ordering_key().c_str());
+								span->SetStatus(opentelemetry::trace::StatusCode::kError,
+												"transient failure; redeliver");
+								break;
 						}
 					}
 				}
 				catch (const std::exception& e) {
-					fprintf(stderr, "PubSubListener callback exception: %s (subscription=%s message_id=%s)\n",
-						e.what(), _subscription_id.c_str(), m.message_id().c_str());
+					// An error escaped onNotification's own handling — treat as transient and redeliver.
+					fprintf(stderr, "PubSubListener callback exception: %s (subscription=%s message_id=%s); nacking\n",
+							e.what(), _subscription_id.c_str(), m.message_id().c_str());
+					result = NotificationResult::TransientFailure;
 				}
 				catch (...) {
-					fprintf(stderr, "PubSubListener callback unknown exception (subscription=%s message_id=%s)\n",
+					// Truly unknown (non-std) error: drop to avoid an infinite poison-redelivery loop.
+					fprintf(
+						stderr,
+						"PubSubListener callback unknown exception (subscription=%s message_id=%s); acking to drop\n",
 						_subscription_id.c_str(), m.message_id().c_str());
+					result = NotificationResult::PermanentFailure;
 				}
-				std::move(h).ack();
+
+				if (result == NotificationResult::TransientFailure) {
+					std::move(h).nack();
+				}
+				else {
+					std::move(h).ack();
+				}
 				return true;
 			});
 
@@ -194,7 +223,7 @@ PubSubNetworkListener::~PubSubNetworkListener()
 {
 }
 
-bool PubSubNetworkListener::onNotification(const std::string& payload)
+NotificationResult PubSubNetworkListener::onNotification(const std::string& payload)
 {
 	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 	auto tracer = provider->GetTracer("PubSubNetworkListener");
@@ -206,7 +235,7 @@ bool PubSubNetworkListener::onNotification(const std::string& payload)
 		fprintf(stderr, "Failed to parse NetworkChange protobuf message\n");
 		span->SetAttribute("error", "Failed to parse NetworkChange protobuf message");
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Failed to parse protobuf");
-		return false;
+		return NotificationResult::PermanentFailure;
 	}
 
 	try {
@@ -226,7 +255,7 @@ bool PubSubNetworkListener::onNotification(const std::string& payload)
 			fprintf(stderr, "NetworkChange message has no old or new network config\n");
 			span->SetAttribute("error", "NetworkChange message has no old or new network config");
 			span->SetStatus(opentelemetry::trace::StatusCode::kError, "No old or new config");
-			return false;
+			return NotificationResult::PermanentFailure;
 		}
 
 		if (oldConfig.is_object() && newConfig.is_object()) {
@@ -255,26 +284,28 @@ bool PubSubNetworkListener::onNotification(const std::string& payload)
 			}
 		}
 	}
-	catch (const nlohmann::json::parse_error& e) {
-		fprintf(stderr, "PubSubNetworkListener JSON parse error: %s\n", e.what());
+	catch (const nlohmann::json::exception& e) {
+		// Malformed/unexpected message contents (parse or type error) — unprocessable, drop it.
+		fprintf(stderr, "PubSubNetworkListener JSON error: %s\n", e.what());
 		span->SetAttribute("error", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 		fprintf(stderr, "payload: %s\n", payload.c_str());
-		return false;
+		return NotificationResult::PermanentFailure;
 	}
 	catch (const std::exception& e) {
+		// Most likely a DB/runtime error from _db->save/eraseNetwork — retryable.
 		fprintf(stderr, "PubSubNetworkListener Exception in PubSubNetworkListener: %s\n", e.what());
 		span->SetAttribute("error", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-		return false;
+		return NotificationResult::TransientFailure;
 	}
 	catch (...) {
 		fprintf(stderr, "PubSubNetworkListener Unknown exception in PubSubNetworkListener\n");
 		span->SetAttribute("error", "Unknown exception in PubSubNetworkListener");
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Unknown exception");
-		return false;
+		return NotificationResult::PermanentFailure;
 	}
-	return true;
+	return NotificationResult::Ok;
 }
 
 PubSubMemberListener::PubSubMemberListener(std::string controller_id, std::string project, std::string topic, DB* db)
@@ -287,7 +318,7 @@ PubSubMemberListener::~PubSubMemberListener()
 {
 }
 
-bool PubSubMemberListener::onNotification(const std::string& payload)
+NotificationResult PubSubMemberListener::onNotification(const std::string& payload)
 {
 	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 	auto tracer = provider->GetTracer("PubSubMemberListener");
@@ -299,7 +330,7 @@ bool PubSubMemberListener::onNotification(const std::string& payload)
 		fprintf(stderr, "Failed to parse MemberChange protobuf message\n");
 		span->SetAttribute("error", "Failed to parse MemberChange protobuf message");
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Failed to parse protobuf");
-		return false;
+		return NotificationResult::PermanentFailure;
 	}
 
 	try {
@@ -320,7 +351,7 @@ bool PubSubMemberListener::onNotification(const std::string& payload)
 			fprintf(stderr, "MemberChange message has no old or new member config\n");
 			span->SetAttribute("error", "MemberChange message has no old or new member config");
 			span->SetStatus(opentelemetry::trace::StatusCode::kError, "No old or new config");
-			return false;
+			return NotificationResult::PermanentFailure;
 		}
 
 		if (oldConfig.is_object() && newConfig.is_object()) {
@@ -356,20 +387,22 @@ bool PubSubMemberListener::onNotification(const std::string& payload)
 			}
 		}
 	}
-	catch (const nlohmann::json::parse_error& e) {
-		fprintf(stderr, "PubSubMemberListener JSON parse error: %s\n", e.what());
+	catch (const nlohmann::json::exception& e) {
+		// Malformed/unexpected message contents (parse or type error) — unprocessable, drop it.
+		fprintf(stderr, "PubSubMemberListener JSON error: %s\n", e.what());
 		span->SetAttribute("error", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 		fprintf(stderr, "payload: %s\n", payload.c_str());
-		return false;
+		return NotificationResult::PermanentFailure;
 	}
 	catch (const std::exception& e) {
+		// Most likely a DB/runtime error from _db->save/eraseMember — retryable.
 		fprintf(stderr, "PubSubMemberListener Exception in PubSubMemberListener: %s\n", e.what());
 		span->SetAttribute("error", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
-		return false;
+		return NotificationResult::TransientFailure;
 	}
-	return true;
+	return NotificationResult::Ok;
 }
 
 nlohmann::json toJson(const pbmessages::NetworkChange_Network& nc, pbmessages::NetworkChange_ChangeSource source)
@@ -661,7 +694,7 @@ PubSubSSOListener::~PubSubSSOListener()
 {
 }
 
-bool PubSubSSOListener::onNotification(const std::string& payload)
+NotificationResult PubSubSSOListener::onNotification(const std::string& payload)
 {
 	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 	auto tracer = provider->GetTracer("PubSubSSOListener");
@@ -672,18 +705,18 @@ bool PubSubSSOListener::onNotification(const std::string& payload)
 	if (! msg.ParseFromString(payload)) {
 		fprintf(stderr, "Failed to parse SSOUpdate protobuf message\n");
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Failed to parse protobuf");
-		return false;
+		return NotificationResult::PermanentFailure;
 	}
 
 	if (msg.message_type() != pbmessages::SSOUpdate::ZT1_AUTH_UPDATE) {
 		fprintf(stderr, "PubSubSSOListener: ignoring non-ZT1_AUTH_UPDATE message type %d\n", msg.message_type());
-		return true;
+		return NotificationResult::Ok;	 // valid message we intentionally don't handle — ack
 	}
 
 	if (! msg.has_auth_update()) {
 		fprintf(stderr, "PubSubSSOListener: ZT1_AUTH_UPDATE message missing auth_update\n");
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, "Missing auth_update");
-		return false;
+		return NotificationResult::PermanentFailure;
 	}
 
 	const auto& au = msg.auth_update();
@@ -710,7 +743,7 @@ bool PubSubSSOListener::onNotification(const std::string& payload)
 				networkId.c_str());
 			w.abort();
 			_pool->unborrow(c);
-			return true;	// ack — no point redelivering for a nonexistent network
+			return NotificationResult::Ok;	 // ack — no point redelivering for a nonexistent network
 		}
 		std::string frontend = fr.at(0)[0].as<std::optional<std::string> >().value_or("");
 		span->SetAttribute("frontend", frontend);
@@ -732,15 +765,17 @@ bool PubSubSSOListener::onNotification(const std::string& payload)
 		_pool->unborrow(c);
 	}
 	catch (std::exception& e) {
+		// Pool exhaustion / DB error — retryable. Nack so the auth update is redelivered
+		// rather than silently lost (a lost SSO auth-expiry update is security-relevant).
 		fprintf(stderr, "PubSubSSOListener: error updating sso_expiry: %s\n", e.what());
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 		if (c) {
 			_pool->unborrow(c);
 		}
-		return false;
+		return NotificationResult::TransientFailure;
 	}
 
-	return true;
+	return NotificationResult::Ok;
 }
 
 }	// namespace ZeroTier

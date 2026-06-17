@@ -63,7 +63,7 @@ void PostgresMemberListener::listen()
 	}
 }
 
-bool PostgresMemberListener::onNotification(const std::string& payload)
+NotificationResult PostgresMemberListener::onNotification(const std::string& payload)
 {
 	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 	auto tracer = provider->GetTracer("PostgresMemberNotificationListener");
@@ -102,9 +102,9 @@ bool PostgresMemberListener::onNotification(const std::string& payload)
 	catch (const std::exception& e) {
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 		fprintf(stderr, "ERROR: exception handling member notification: %s\n", e.what());
-		return false;
+		return NotificationResult::TransientFailure;
 	}
-	return true;
+	return NotificationResult::Ok;
 }
 
 PostgresNetworkListener::PostgresNetworkListener(
@@ -152,7 +152,7 @@ void PostgresNetworkListener::listen()
 	}
 }
 
-bool PostgresNetworkListener::onNotification(const std::string& payload)
+NotificationResult PostgresNetworkListener::onNotification(const std::string& payload)
 {
 	auto provider = opentelemetry::trace::Provider::GetTracerProvider();
 	auto tracer = provider->GetTracer("db_network_notification");
@@ -201,9 +201,9 @@ bool PostgresNetworkListener::onNotification(const std::string& payload)
 	catch (const std::exception& e) {
 		span->SetStatus(opentelemetry::trace::StatusCode::kError, e.what());
 		fprintf(stderr, "ERROR: exception handling network notification: %s\n", e.what());
-		return false;
+		return NotificationResult::TransientFailure;
 	}
-	return true;
+	return NotificationResult::Ok;
 }
 
 }	// namespace ZeroTier

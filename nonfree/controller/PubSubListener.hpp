@@ -25,7 +25,7 @@ class PubSubListener : public NotificationListener {
 	PubSubListener(std::string controller_id, std::string project, std::string topic);
 	virtual ~PubSubListener();
 
-	virtual bool onNotification(const std::string& payload) = 0;
+	virtual NotificationResult onNotification(const std::string& payload) = 0;
 
   protected:
 	std::string _controller_id;
@@ -54,7 +54,7 @@ class PubSubNetworkListener : public PubSubListener {
 	PubSubNetworkListener(std::string controller_id, std::string project, std::string topic, DB* db);
 	virtual ~PubSubNetworkListener();
 
-	virtual bool onNotification(const std::string& payload) override;
+	virtual NotificationResult onNotification(const std::string& payload) override;
 
   private:
 	DB* _db;
@@ -68,7 +68,7 @@ class PubSubMemberListener : public PubSubListener {
 	PubSubMemberListener(std::string controller_id, std::string project, std::string topic, DB* db);
 	virtual ~PubSubMemberListener();
 
-	virtual bool onNotification(const std::string& payload) override;
+	virtual NotificationResult onNotification(const std::string& payload) override;
 
   private:
 	DB* _db;
@@ -86,7 +86,7 @@ class PubSubSSOListener : public PubSubListener {
 		std::shared_ptr<ConnectionPool<PostgresConnection> > pool);
 	virtual ~PubSubSSOListener();
 
-	virtual bool onNotification(const std::string& payload) override;
+	virtual NotificationResult onNotification(const std::string& payload) override;
 
   private:
 	std::shared_ptr<ConnectionPool<PostgresConnection> > _pool;

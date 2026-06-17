@@ -87,7 +87,17 @@ bool PubSubWriter::publishMessage(const std::string& payload,
 	auto msg = std::move(msg_tmp).Build();
 	auto message_id = _publisher->Publish(std::move(msg)).get();
 	if (! message_id) {
-		fprintf(stderr, "Failed to publish message: %s\n", std::move(message_id).status().message().c_str());
+		auto status = std::move(message_id).status();
+		fprintf(stderr, "Failed to publish message (ordering_key=%s): %s\n", orderingKey.c_str(),
+				status.message().c_str());
+		if (! orderingKey.empty()) {
+			// Message ordering is enabled (MessageOrderingOption(true)), so a failed publish
+			// permanently rejects every subsequent message for this ordering key until
+			// ResumePublish() is called. Without this, one transient failure would silently
+			// wedge change propagation for this network/member for the life of the process.
+			// We resume to unblock future messages; this one is reported as failed to the caller.
+			_publisher->ResumePublish(orderingKey);
+		}
 		return false;
 	}
 
