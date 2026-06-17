@@ -149,14 +149,25 @@ CentralDB::CentralDB(const Identity& myId,
 		case LISTENER_MODE_REDIS:
 			fprintf(stderr, "Using Redis for change listeners\n");
 			if (_cc->redisConfig != NULL) {
+				std::shared_ptr<RedisMemberListener> memberListener;
+				std::shared_ptr<RedisNetworkListener> networkListener;
 				if (_cc->redisConfig->clusterMode) {
-					_membersDbWatcher = std::make_shared<RedisMemberListener>(_myAddressStr, _cluster, this);
-					_networksDbWatcher = std::make_shared<RedisNetworkListener>(_myAddressStr, _cluster, this);
+					memberListener = std::make_shared<RedisMemberListener>(_myAddressStr, _cluster, this);
+					networkListener = std::make_shared<RedisNetworkListener>(_myAddressStr, _cluster, this);
 				}
 				else {
-					_membersDbWatcher = std::make_shared<RedisMemberListener>(_myAddressStr, _redis, this);
-					_networksDbWatcher = std::make_shared<RedisNetworkListener>(_myAddressStr, _redis, this);
+					memberListener = std::make_shared<RedisMemberListener>(_myAddressStr, _redis, this);
+					networkListener = std::make_shared<RedisNetworkListener>(_myAddressStr, _redis, this);
 				}
+				// RedisListener spawns its listen thread only when start() is called --
+				// it can't start in the base ctor because listen() is pure virtual and
+				// the derived object isn't constructed yet. (Postgres/PubSub listeners
+				// start in their own ctors.) Without this, Redis listener mode silently
+				// never consumes change notifications.
+				memberListener->start();
+				networkListener->start();
+				_membersDbWatcher = memberListener;
+				_networksDbWatcher = networkListener;
 			}
 			else {
 				throw std::runtime_error("CentralDB: Redis listener mode selected but no Redis configuration provided");

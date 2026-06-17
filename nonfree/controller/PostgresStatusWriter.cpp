@@ -80,8 +80,9 @@ void PostgresStatusWriter::writePending()
 		// conn returned to the pool by PooledConnection's destructor on scope exit.
 	}
 	catch (const std::exception& e) {
-		// Log the error
 		fprintf(stderr, "Error writing to Postgres: %s\n", e.what());
+		// Don't drop the batch on a transient failure — re-queue it for the next cycle.
+		requeuePendingStatus(_pending, _lock, std::move(toWrite), "PostgresStatusWriter");
 	}
 }
 

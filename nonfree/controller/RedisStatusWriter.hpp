@@ -29,7 +29,7 @@ class RedisStatusWriter : public StatusWriter {
 	virtual void writePending() override;
 
   private:
-	void _doWritePending(sw::redis::Transaction& tx);
+	void _doWritePending(sw::redis::Transaction& tx, const std::vector<PendingStatusEntry>& toWrite);
 
 	std::string _controller_id;
 

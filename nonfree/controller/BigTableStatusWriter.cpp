@@ -174,6 +174,8 @@ void BigTableStatusWriter::writePending()
 		for (uint64_t keyHash : bulkRowHashes) {
 			_lastNodeInfo.erase(keyHash);
 		}
+		// Don't drop the batch — re-queue it for the next cycle.
+		requeuePendingStatus(_pending, _lock, std::move(toWrite), "BigTableStatusWriter");
 		return;
 	}
 

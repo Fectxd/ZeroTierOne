@@ -49,29 +49,34 @@ size_t RedisStatusWriter::queueLength() const
 
 void RedisStatusWriter::writePending()
 {
-	try {
-		if (_mode == REDIS_MODE_STANDALONE) {
-			auto tx = _redis->transaction(true, false);
-			_doWritePending(tx);
-		}
-		else if (_mode == REDIS_MODE_CLUSTER) {
-			auto tx = _cluster->transaction(_controller_id, true, false);
-			_doWritePending(tx);
-		}
-	}
-	catch (const sw::redis::Error& e) {
-		// Log the error
-		fprintf(stderr, "Error writing to Redis: %s\n", e.what());
-	}
-}
-
-void RedisStatusWriter::_doWritePending(sw::redis::Transaction& tx)
-{
 	std::vector<PendingStatusEntry> toWrite;
 	{
 		std::lock_guard<std::mutex> l(_lock);
 		toWrite.swap(_pending);
 	}
+	if (toWrite.empty()) {
+		return;
+	}
+
+	try {
+		if (_mode == REDIS_MODE_STANDALONE) {
+			auto tx = _redis->transaction(true, false);
+			_doWritePending(tx, toWrite);
+		}
+		else if (_mode == REDIS_MODE_CLUSTER) {
+			auto tx = _cluster->transaction(_controller_id, true, false);
+			_doWritePending(tx, toWrite);
+		}
+	}
+	catch (const sw::redis::Error& e) {
+		fprintf(stderr, "Error writing to Redis: %s\n", e.what());
+		// Don't drop the batch on a transient failure — re-queue it for the next cycle.
+		requeuePendingStatus(_pending, _lock, std::move(toWrite), "RedisStatusWriter");
+	}
+}
+
+void RedisStatusWriter::_doWritePending(sw::redis::Transaction& tx, const std::vector<PendingStatusEntry>& toWrite)
+{
 	if (toWrite.empty()) {
 		return;
 	}
