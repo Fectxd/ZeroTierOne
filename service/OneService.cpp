@@ -2029,7 +2029,7 @@ class OneServiceImpl : public OneService {
 		std::string statusPath = "/status";
 		std::string metricsPath = "/metrics";
 
-		
+
 
 		std::vector<std::string> noAuthEndpoints { "/sso", "/health" };
 
@@ -2799,12 +2799,33 @@ class OneServiceImpl : public OneService {
 			std::string responseContentType = "text/html";
 			std::string responseBody = "";
 			json outData;
+			// Pre-populate every variable the SSO response template references so
+			// inja can render on all code paths (a missing variable makes inja throw,
+			// which previously turned a real SSO/IdP error into an opaque 500:
+			// "variable 'networkId' not found").
+			outData["isError"] = false;
+			outData["messageText"] = "";
+
+			// Resolve the network id from the OAuth "state" param up front so it is
+			// available to the response template on every path, including the
+			// IdP-error branch below (OAuth error redirects still carry "state").
+			// zeroidc_network_id_from_state() returns null for a missing/malformed
+			// state, so guard before constructing a std::string from it.
+			std::string networkIdStr;
+			{
+				std::string state = req.get_param_value("state");
+				char* nwid = rustybits::zeroidc_network_id_from_state(state.c_str());
+				if (nwid != nullptr) {
+					networkIdStr = std::string(nwid);
+					rustybits::free_cstr(nwid);
+				}
+			}
+			outData["networkId"] = networkIdStr;
 
 			if (req.has_param("error")) {
 				std::string error = req.get_param_value("error");
 				std::string desc = req.get_param_value("error_description");
 
-				json data;
 				outData["isError"] = true;
 				outData["messageText"] = (std::string("ERROR ") + error + std::string(": ") + desc);
 				responseBody = inja::render(htmlTemplate, outData);
@@ -2814,15 +2835,7 @@ class OneServiceImpl : public OneService {
 				return;
 			}
 
-			// SSO redirect handling
-			std::string state = req.get_param_value("state");
-			char* nwid = rustybits::zeroidc_network_id_from_state(state.c_str());
-
-			outData["networkId"] = std::string(nwid);
-
-			const uint64_t id = Utils::hexStrToU64(nwid);
-
-			rustybits::free_cstr(nwid);
+			const uint64_t id = Utils::hexStrToU64(networkIdStr.c_str());
 
 			Mutex::Lock l(_nets_m);
 			if (_nets.find(id) != _nets.end()) {
@@ -2855,6 +2868,15 @@ class OneServiceImpl : public OneService {
 				}
 
 				rustybits::free_cstr(ret);
+			}
+			else {
+				// Network isn't loaded on this agent; render an error page
+				// rather than returning an empty 200 body.
+				outData["isError"] = true;
+				outData["messageText"] = "ERROR: Network not found.";
+				responseBody = inja::render(htmlTemplate, outData);
+				res.set_content(responseBody, responseContentType);
+				res.status = 404;
 			}
 		};
 		_controlPlane.Get(ssoPath, ssoGet);
