@@ -313,6 +313,15 @@ if(ZT1_CENTRAL_CONTROLLER)
         -DZT_OPENTELEMETRY_ENABLED=1
         -DZT_NO_PEER_METRICS=1
     )
+    # The controller installs a fatal-signal handler (one.cpp) that prints a backtrace
+    # via backtrace()/backtrace_symbols_fd() on SIGSEGV/SIGABRT/etc. Keep debug info even
+    # in Release (-O3 -g; no runtime cost) and export the executable's dynamic symbols
+    # (-rdynamic) so the backtrace resolves function names instead of bare addresses.
+    # Controller-only; not built on Windows (enforced above).
+    if(NOT MSVC)
+        add_compile_options(-g)
+        add_link_options(-rdynamic)
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------
