@@ -37,9 +37,10 @@ class RedisListener : public NotificationListener {
 	}
 
 	// Stop and join the listen thread. Must be called from the most-derived destructor
-	// (before its members are torn down) since listen() lives in the derived class.
+	// (before its members are torn down) since listen() lives in the derived class, and
+	// by the owning DB before it tears down state the callback touches.
 	// Idempotent; the base destructor also calls it as a safety net.
-	void stop();
+	void stop() override;
 
   protected:
 	std::string _controller_id;

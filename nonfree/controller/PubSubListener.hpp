@@ -32,13 +32,14 @@ class PubSubListener : public NotificationListener {
 
 	virtual NotificationResult onNotification(const std::string& payload) = 0;
 
-  protected:
 	// Stop and join the subscriber thread. Must be called from the most-derived
 	// destructor (before its members are torn down) so an in-flight callback can't
-	// invoke onNotification on a partially-destroyed object. Idempotent; the base
+	// invoke onNotification on a partially-destroyed object, and by the owning DB
+	// before it tears down state the callback touches. Idempotent; the base
 	// destructor also calls it as a safety net.
-	void stop();
+	void stop() override;
 
+  protected:
 	std::string _controller_id;
 	std::string _project;
 	std::string _topic;

@@ -42,6 +42,17 @@ class NotificationListener {
 	 * @return how the message should be handled (ack/drop vs. nack/redeliver).
 	 */
 	virtual NotificationResult onNotification(const std::string& payload) = 0;
+
+	/**
+	 * Stop and join any background thread so no further onNotification callbacks fire.
+	 *
+	 * Listeners hold a raw DB* and call back into it from their worker thread; the owner
+	 * must be able to quiesce them before tearing down the DB. Idempotent. Default no-op
+	 * for listeners that have no background thread.
+	 */
+	virtual void stop()
+	{
+	}
 };
 
 }	// namespace ZeroTier

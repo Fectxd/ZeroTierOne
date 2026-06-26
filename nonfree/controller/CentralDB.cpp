@@ -239,8 +239,25 @@ CentralDB::CentralDB(const Identity& myId,
 
 CentralDB::~CentralDB()
 {
+	// Stop the change listeners first. Each holds a raw DB* (this) and calls back into
+	// save()/eraseNetwork()/eraseMember()/isReady() from its own worker thread. Those
+	// methods touch _readyLock/_readyCv/_ready/_lastOnline/_commitQueue, which are
+	// destroyed (reverse declaration order) before the listener shared_ptrs would run
+	// their destructors -- so a message in flight during teardown would use freed sync
+	// primitives -> SIGSEGV (exit 139). Joining the listener threads here, before any
+	// CentralDB state is torn down, closes that window. stop() is idempotent, so the
+	// listener destructors' safety-net calls remain harmless.
+	if (_membersDbWatcher) {
+		_membersDbWatcher->stop();
+	}
+	if (_networksDbWatcher) {
+		_networksDbWatcher->stop();
+	}
+	if (_ssoAuthListener) {
+		_ssoAuthListener->stop();
+	}
+
 	_run = 0;
-	std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
 	_heartbeatThread.join();
 	_commitQueue.stop();

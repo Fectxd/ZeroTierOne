@@ -48,14 +48,19 @@ PostgresMemberListener::PostgresMemberListener(DB* db,
 
 PostgresMemberListener::~PostgresMemberListener()
 {
-	_run = false;
-	if (_listenerThread.joinable()) {
-		_listenerThread.join();
-	}
+	stop();
 	delete _receiver;
 	if (_conn) {
 		_pool->unborrow(_conn);
 		_conn.reset();
+	}
+}
+
+void PostgresMemberListener::stop()
+{
+	_run = false;
+	if (_listenerThread.joinable()) {
+		_listenerThread.join();
 	}
 }
 
@@ -179,14 +184,19 @@ PostgresNetworkListener::PostgresNetworkListener(DB* db,
 
 PostgresNetworkListener::~PostgresNetworkListener()
 {
-	_run = false;
-	if (_listenerThread.joinable()) {
-		_listenerThread.join();
-	}
+	stop();
 	delete _receiver;
 	if (_conn) {
 		_pool->unborrow(_conn);
 		_conn.reset();
+	}
+}
+
+void PostgresNetworkListener::stop()
+{
+	_run = false;
+	if (_listenerThread.joinable()) {
+		_listenerThread.join();
 	}
 }
 

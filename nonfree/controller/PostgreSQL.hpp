@@ -223,6 +223,10 @@ class PostgresMemberListener : public NotificationListener {
 
 	virtual NotificationResult onNotification(const std::string& payload) override;
 
+	// Stop and join the listen thread so no further onNotification callbacks fire.
+	// Idempotent; the destructor also calls it as a safety net.
+	void stop() override;
+
   private:
 	// Drop the dead connection/receiver and rebind to a freshly borrowed one.
 	void reconnect();
@@ -249,6 +253,10 @@ class PostgresNetworkListener : public NotificationListener {
 	virtual void listen();
 
 	virtual NotificationResult onNotification(const std::string& payload) override;
+
+	// Stop and join the listen thread so no further onNotification callbacks fire.
+	// Idempotent; the destructor also calls it as a safety net.
+	void stop() override;
 
   private:
 	// Drop the dead connection/receiver and rebind to a freshly borrowed one.
