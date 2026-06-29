@@ -18,9 +18,6 @@ ZT_CARGO_FLAGS?=
 
 include objects.mk
 
-ifeq ($(ZT_CONTROLLER),1)
-	ZT_NONFREE=1
-endif
 ifeq ($(ZT_NONFREE),1)
 	include objects-nonfree.mk
 	ONE_OBJS+=$(CONTROLLER_OBJS)
@@ -131,9 +128,6 @@ ifeq ($(CC_MACH),x86_64)
 	override CFLAGS+=-msse -msse2
 	override CXXFLAGS+=-msse -msse2
 	ZT_SSO_SUPPORTED=1
-	ifeq ($(ZT_CONTROLLER),1)
-		EXT_ARCH=amd64
-	endif
 endif
 ifeq ($(CC_MACH),amd64)
 	ZT_ARCHITECTURE=2
@@ -142,9 +136,6 @@ ifeq ($(CC_MACH),amd64)
 	override CFLAGS+=-msse -msse2
 	override CXXFLAGS+=-msse -msse2
 	ZT_SSO_SUPPORTED=1
-	ifeq ($(ZT_CONTROLLER),1)
-		EXT_ARCH=amd64
-	endif
 endif
 ifeq ($(CC_MACH),powerpc64le)
 	ZT_ARCHITECTURE=8
@@ -255,9 +246,6 @@ ifeq ($(CC_MACH),aarch64)
 	ZT_SSO_SUPPORTED=1
 	ZT_USE_X64_ASM_ED25519=0
 	override DEFS+=-DZT_NO_TYPE_PUNNING -DZT_ARCH_ARM_HAS_NEON -march=armv8-a+crypto -mtune=generic -mstrict-align
-	ifeq ($(ZT_CONTROLLER),1)
-		EXT_ARCH=arm64
-	endif
 endif
 ifeq ($(CC_MACH),mipsel)
 	ZT_ARCHITECTURE=5
@@ -340,18 +328,6 @@ endif
 #	CORE_OBJS+=ext/misc/linux-old-glibc-compat.o
 #	override LDFLAGS+=-Wl,--wrap=memcpy -static-libstdc++
 #endif
-
-ifeq ($(ZT_CONTROLLER),1)
-	override CXXFLAGS+=-Wall -Wno-deprecated -std=c++17 -pthread $(INCLUDES) -DNDEBUG $(DEFS)
-	override LDLIBS+=-Lext/libpqxx-7.7.3/install/ubuntu22.04/$(EXT_ARCH)/lib -lpqxx -lpq ext/hiredis-1.0.2/lib/ubuntu22.04/$(EXT_ARCH)/libhiredis.a ext/redis-plus-plus-1.3.3/install/ubuntu22.04/$(EXT_ARCH)/lib/libredis++.a -lssl -lcrypto
-	override DEFS+=-DZT_CONTROLLER_USE_LIBPQ -DZT_NO_PEER_METRICS -DZT_OPENTELEMETRY_ENABLED
-	override INCLUDES+=-I/usr/include/postgresql -Iext/libpqxx-7.7.3/install/ubuntu22.04/$(EXT_ARCH)/include -Iext/hiredis-1.0.2/include/ -Iext/redis-plus-plus-1.3.3/install/ubuntu22.04/$(EXT_ARCH)/include
-	ifeq ($(ZT_DEBUG),1)
-		override LDLIBS+=rustybits/target/debug/librustybits.a
-	else
-		override LDLIBS+=rustybits/target/release/librustybits.a
-	endif
-endif
 
 # ARM32 hell -- use conservative CFLAGS
 ifeq ($(ZT_ARCHITECTURE),3)

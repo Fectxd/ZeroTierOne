@@ -52,15 +52,7 @@ CXXFLAGS=$(CFLAGS) -std=c++17 -stdlib=libc++
 # Build miniupnpc and nat-pmp as included libraries -- extra defs are required for these sources
 override DEFS+=-DMACOSX -DZT_SSO_SUPPORTED -DZT_USE_MINIUPNPC -DMINIUPNP_STATICLIB -D_DARWIN_C_SOURCE -DMINIUPNPC_SET_SOCKET_TIMEOUT -DMINIUPNPC_GET_SRC_ADDR -D_BSD_SOURCE -D_DEFAULT_SOURCE -DOS_STRING=\"Darwin/15.0.0\" -DMINIUPNPC_VERSION_STRING=\"2.0\" -DUPNP_VERSION_STRING=\"UPnP/1.1\" -DENABLE_STRNATPMPERR
 ONE_OBJS+=ext/libnatpmp/natpmp.o ext/libnatpmp/getgateway.o ext/miniupnpc/connecthostport.o ext/miniupnpc/igd_desc_parse.o ext/miniupnpc/minisoap.o ext/miniupnpc/minissdpc.o ext/miniupnpc/miniupnpc.o ext/miniupnpc/miniwget.o ext/miniupnpc/minixml.o ext/miniupnpc/portlistingparse.o ext/miniupnpc/receivedata.o ext/miniupnpc/upnpcommands.o ext/miniupnpc/upnpdev.o ext/miniupnpc/upnperrors.o ext/miniupnpc/upnpreplyparse.o osdep/PortMapper.o
-ifeq ($(ZT_CONTROLLER),1)
-	MACOS_VERSION_MIN=10.15
-	override CXXFLAGS=$(CFLAGS) -std=c++17 -stdlib=libc++
-	LIBS+=-L/opt/homebrew/lib -L/usr/local/opt/libpqxx/lib -L/usr/local/opt/libpq/lib -L/usr/local/opt/openssl/lib/ -lpqxx -lpq -lssl -lcrypto -lgssapi_krb5 ext/redis-plus-plus-1.1.1/install/macos/lib/libredis++.a ext/hiredis-0.14.1/lib/macos/libhiredis.a rustybits/target/librustybits.a
-	override DEFS+=-DZT_CONTROLLER_USE_LIBPQ -DZT_CONTROLLER_USE_REDIS -DZT_CONTROLLER
-	INCLUDES+=-I/opt/homebrew/include -I/opt/homebrew/opt/libpq/include -I/usr/local/opt/libpq/include -I/usr/local/opt/libpqxx/include -Iext/hiredis-0.14.1/include/ -Iext/redis-plus-plus-1.1.1/install/macos/include/sw/ -Irustybits/target/
-else
-	MACOS_VERSION_MIN=10.13
-endif
+MACOS_VERSION_MIN=10.13
 
 # Build with address sanitization library for advanced debugging (clang)
 ifeq ($(ZT_SANITIZE),1)
@@ -118,11 +110,7 @@ mac-agent: FORCE
 osdep/MacDNSHelper.o: osdep/MacDNSHelper.mm
 	$(CXX) $(CXXFLAGS) -c osdep/MacDNSHelper.mm -o osdep/MacDNSHelper.o
 
-ifeq ($(ZT_CONTROLLER),1)
-one:	otel rustybits $(CORE_OBJS) $(ONE_OBJS) one.o mac-agent 
-else
-one:	otel rustybits $(CORE_OBJS) $(ONE_OBJS) one.o mac-agent 
-endif
+one:	otel rustybits $(CORE_OBJS) $(ONE_OBJS) one.o mac-agent
 	$(CXX) $(CXXFLAGS) -o zerotier-one $(CORE_OBJS) $(ONE_OBJS) one.o $(LIBS) rustybits/target/librustybits.a
 	# $(STRIP) zerotier-one
 	ln -sf zerotier-one zerotier-idtool
