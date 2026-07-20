@@ -24,12 +24,6 @@ time = { version = "~0.3", features = ["formatting"] }
 bytes = "1.3"
 thiserror = "1"
 
-[dev-dependencies]
-testcontainers = { version = "0.24", features = ["blocking"] }
-testcontainers-modules = { version = "0.12.1", features = [
-    "google_cloud_sdk_emulators",
-] }
-
 [build-dependencies]
 cbindgen = "0.29"
 
