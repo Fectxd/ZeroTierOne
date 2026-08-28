@@ -4,6 +4,15 @@ on:
   push:
     branches: [ woa-build ]
   workflow_dispatch:
+    inputs:
+      zt_ref:
+        description: 'ZeroTierOne ref to build (dev = latest, or a tag like 1.16.2)'
+        required: false
+        default: 'dev'
+      gui_ref:
+        description: 'DesktopUI ref to build (main = latest)'
+        required: false
+        default: 'main'
   schedule:
     - cron: '0 3 * * *'   # daily UTC 03:00 (note: scheduled runs are disabled on forks; use workflow_dispatch)
 
@@ -20,8 +29,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
-          $ztSha = (gh api repos/zerotier/ZeroTierOne/commits/dev --jq .sha).Trim()
-          $duiSha = (gh api repos/zerotier/DesktopUI/commits/main --jq .sha).Trim()
+          $ztRef = "${{ github.event.inputs.zt_ref || 'dev' }}"
+          $guiRef = "${{ github.event.inputs.gui_ref || 'main' }}"
+          Write-Host "Building ZeroTierOne ref: $ztRef, DesktopUI ref: $guiRef"
+          $ztSha = (gh api repos/zerotier/ZeroTierOne/commits/$ztRef --jq .sha).Trim()
+          $duiSha = (gh api repos/zerotier/DesktopUI/commits/$guiRef --jq .sha).Trim()
           Write-Host "ZEROTIER_UPSTREAM: $ztSha"
           Write-Host "GUI_UPSTREAM: $duiSha"
           $skip = $false
@@ -38,19 +50,19 @@ jobs:
           "zt_sha=$ztSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
           "dui_sha=$duiSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
 
-      - name: Checkout ZeroTierOne (upstream dev)
+      - name: Checkout ZeroTierOne (upstream dev or selected ref)
         if: steps.check.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           repository: zerotier/ZeroTierOne
-          ref: dev
+          ref: ${{ github.event.inputs.zt_ref || 'dev' }}
 
-      - name: Checkout DesktopUI (upstream main) for GUI
+      - name: Checkout DesktopUI (upstream main or selected ref) for GUI
         if: steps.check.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           repository: zerotier/DesktopUI
-          ref: main
+          ref: ${{ github.event.inputs.gui_ref || 'main' }}
           path: gui-src
 
       - name: Install Rust (aarch64-pc-windows-msvc)
