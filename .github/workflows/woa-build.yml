@@ -25,10 +25,14 @@ jobs:
           Write-Host "ZEROTIER_UPSTREAM: $ztSha"
           Write-Host "GUI_UPSTREAM: $duiSha"
           $skip = $false
-          $body = gh release view v1.16.2-woa-arm64 --repo Fectxd/ZeroTierOne --json body --jq .body 2>$null
-          if ($LASTEXITCODE -eq 0 -and $body -match "ZEROTIER_UPSTREAM:\s*$ztSha" -and $body -match "GUI_UPSTREAM:\s*$duiSha") {
-            $skip = $true
-            Write-Host "Already up to date with upstream - skipping build."
+          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") {
+            $body = gh release view v1.16.2-woa-arm64 --repo Fectxd/ZeroTierOne --json body --jq .body 2>$null
+            if ($LASTEXITCODE -eq 0 -and $body -match "ZEROTIER_UPSTREAM:\s*$ztSha" -and $body -match "GUI_UPSTREAM:\s*$duiSha") {
+              $skip = $true
+              Write-Host "Already up to date with upstream - skipping build."
+            }
+          } else {
+            Write-Host "Trigger: $env:GITHUB_EVENT_NAME - forced build."
           }
           "skip=$skip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
           "zt_sha=$ztSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
@@ -141,6 +145,13 @@ jobs:
           curl.exe -sSL -o "$env:RUNNER_TEMP\install.cmd" "https://raw.githubusercontent.com/Fectxd/ZeroTierOne/woa-build/tools/install.cmd"
           curl.exe -sSL -o "$env:RUNNER_TEMP\uninstall.cmd" "https://raw.githubusercontent.com/Fectxd/ZeroTierOne/woa-build/tools/uninstall.cmd"
           curl.exe -sSL -o "$env:RUNNER_TEMP\README.txt" "https://raw.githubusercontent.com/Fectxd/ZeroTierOne/woa-build/tools/README.txt"
+          # force CRLF line endings on .cmd files so cmd.exe parses multi-line blocks reliably
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          foreach ($sf in @("install.cmd","uninstall.cmd")) {
+            $c = [IO.File]::ReadAllText("$env:RUNNER_TEMP\$sf")
+            $c = $c -replace "`r`n", "`n" -replace "`n", "`r`n"
+            [IO.File]::WriteAllText("$env:RUNNER_TEMP\$sf", $c, $utf8NoBom)
+          }
 
       - name: Assemble one-click installer package
         if: steps.check.outputs.skip != 'true'
