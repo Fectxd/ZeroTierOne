@@ -14,6 +14,7 @@ ZeroTier One 原生 Windows on ARM64 (WOA) 一键安装包
 使用方法：
   1. 解压到任意目录
   2. 双击 install.cmd（会弹出 UAC 提权，点"是"；若被杀软拦截请允许）
+     如果双击后窗口一闪而过，请右键 install.cmd -> 以管理员身份运行
   3. 看到 "Installation complete" 即安装完成，桌面出现 ZeroTier 快捷方式
   4. 双击桌面 ZeroTier 图标打开 GUI，或命令行加入网络：
        cd C:\ProgramData\ZeroTier\One
