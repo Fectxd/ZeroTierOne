@@ -144,10 +144,12 @@ jobs:
           Expand-Archive "$env:RUNNER_TEMP\zttap300.zip" -DestinationPath "$env:RUNNER_TEMP\signed-drv" -Force
           curl.exe -sSL -o "$env:RUNNER_TEMP\install.cmd" "https://raw.githubusercontent.com/Fectxd/ZeroTierOne/woa-build/tools/install.cmd"
           curl.exe -sSL -o "$env:RUNNER_TEMP\uninstall.cmd" "https://raw.githubusercontent.com/Fectxd/ZeroTierOne/woa-build/tools/uninstall.cmd"
+          curl.exe -sSL -o "$env:RUNNER_TEMP\install.ps1" "https://raw.githubusercontent.com/Fectxd/ZeroTierOne/woa-build/tools/install.ps1"
+          curl.exe -sSL -o "$env:RUNNER_TEMP\uninstall.ps1" "https://raw.githubusercontent.com/Fectxd/ZeroTierOne/woa-build/tools/uninstall.ps1"
           curl.exe -sSL -o "$env:RUNNER_TEMP\README.txt" "https://raw.githubusercontent.com/Fectxd/ZeroTierOne/woa-build/tools/README.txt"
-          # force CRLF line endings on .cmd files so cmd.exe parses multi-line blocks reliably
+          # force CRLF line endings on .cmd/.ps1 files so they parse reliably
           $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-          foreach ($sf in @("install.cmd","uninstall.cmd")) {
+          foreach ($sf in @("install.cmd","uninstall.cmd","install.ps1","uninstall.ps1")) {
             $c = [IO.File]::ReadAllText("$env:RUNNER_TEMP\$sf")
             $c = $c -replace "`r`n", "`n" -replace "`n", "`r`n"
             [IO.File]::WriteAllText("$env:RUNNER_TEMP\$sf", $c, $utf8NoBom)
@@ -164,7 +166,7 @@ jobs:
           Copy-Item $coreSrc "$pkg\core\" -Force
           Copy-Item 'gui-src\target\aarch64-pc-windows-msvc\release\zerotier_desktop_ui.exe' "$pkg\gui\" -Force
           Copy-Item "$env:RUNNER_TEMP\signed-drv\*" "$pkg\tap-windows\arm64\" -Force
-          Copy-Item "$env:RUNNER_TEMP\install.cmd", "$env:RUNNER_TEMP\uninstall.cmd", "$env:RUNNER_TEMP\README.txt" $pkg -Force
+          Copy-Item "$env:RUNNER_TEMP\install.cmd", "$env:RUNNER_TEMP\uninstall.cmd", "$env:RUNNER_TEMP\install.ps1", "$env:RUNNER_TEMP\uninstall.ps1", "$env:RUNNER_TEMP\README.txt" $pkg -Force
           foreach ($exe in @("$pkg\core\zerotier-one_arm64.exe", "$pkg\gui\zerotier_desktop_ui.exe")) {
             $b = [IO.File]::ReadAllBytes($exe); $pe = [BitConverter]::ToInt32($b, 0x3C); $m = [BitConverter]::ToUInt16($b, $pe + 4)
             if ($m -ne 0xAA64) { Write-Error "Not ARM64: $exe"; exit 1 }
