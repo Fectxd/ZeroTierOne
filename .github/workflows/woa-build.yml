@@ -1,107 +1,188 @@
-name: WOA (Windows on ARM64) Native Build
+name: WOA Build & Auto-Release
 
 on:
   push:
     branches: [ woa-build ]
   workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'   # daily UTC 03:00 (note: scheduled runs are disabled on forks; use workflow_dispatch)
 
 jobs:
-  build-woa-arm64:
+  build:
     runs-on: windows-11-arm
+    permissions:
+      contents: write
     steps:
-      - name: Checkout
+      - name: Check upstream state (skip if already built)
+        id: check
+        shell: pwsh
+        run: |
+          $ztSha = (gh api repos/zerotier/ZeroTierOne/commits/dev --jq .sha).Trim()
+          $duiSha = (gh api repos/zerotier/DesktopUI/commits/main --jq .sha).Trim()
+          Write-Host "ZEROTIER_UPSTREAM: $ztSha"
+          Write-Host "GUI_UPSTREAM: $duiSha"
+          $skip = $false
+          $body = gh release view v1.16.2-woa-arm64 --json body --jq .body 2>$null
+          if ($LASTEXITCODE -eq 0 -and $body -match "ZEROTIER_UPSTREAM:\s*$ztSha" -and $body -match "GUI_UPSTREAM:\s*$duiSha") {
+            $skip = $true
+            Write-Host "Already up to date with upstream - skipping build."
+          }
+          "skip=$skip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+          "zt_sha=$ztSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+          "dui_sha=$duiSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+
+      - name: Checkout ZeroTierOne (upstream dev)
+        if: steps.check.outputs.skip != 'true'
         uses: actions/checkout@v4
+        with:
+          repository: zerotier/ZeroTierOne
+          ref: dev
+
+      - name: Checkout DesktopUI (upstream main) for GUI
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: zerotier/DesktopUI
+          ref: main
+          path: gui-src
 
       - name: Install Rust (aarch64-pc-windows-msvc)
+        if: steps.check.outputs.skip != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           targets: aarch64-pc-windows-msvc
 
       - name: Setup MSBuild
+        if: steps.check.outputs.skip != 'true'
         uses: microsoft/setup-msbuild@v2
 
-      - name: Ensure WDK is available
-        shell: pwsh
-        run: |
-          $km = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -Directory -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -match '^10\.0\.' -and (Test-Path (Join-Path $_.FullName 'km')) } |
-                Select-Object -First 1
-          if ($km) {
-            Write-Host "WDK detected: $($km.FullName)"
-          } else {
-            Write-Host "WDK not detected - installing via winget (this can take a few minutes)..."
-            winget install --id Microsoft.WindowsWDK.10.0.26100 --source winget --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
-            Write-Host "winget exit code: $LASTEXITCODE"
-          }
-
       - name: Build rustybits (zeroidc) static lib for ARM64
+        if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
           if (-not $vsPath) { $vsPath = & $vswhere -latest -products * -property installationPath }
-          Write-Host "Visual Studio: $vsPath"
           if (-not $vsPath) { Write-Error "Visual Studio not found"; exit 1 }
           $devCmd = Join-Path $vsPath 'Common7\Tools\VsDevCmd.bat'
           cmd /c "`"$devCmd`" -arch=arm64 >nul 2>&1 && cd /d `"$env:GITHUB_WORKSPACE\rustybits`" && cargo build --release --target=aarch64-pc-windows-msvc"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build ZeroTier One (Release | ARM64)
+        if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
           msbuild windows\ZeroTierOne.sln /m /p:Configuration=Release /p:Platform=ARM64 /t:ZeroTierOne /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build TapDriver6 (Win8 Release | ARM64)
+        if: steps.check.outputs.skip != 'true'
         shell: pwsh
         continue-on-error: true
         run: |
           msbuild windows\TapDriver6\TapDriver6.vcxproj /m /p:Configuration="Win8 Release" /p:Platform=ARM64 /t:Build /v:minimal
           Write-Host "TapDriver6 exit code: $LASTEXITCODE"
 
-      - name: Fetch ready-made Microsoft-signed ARM64 tap driver
+      # ================= GUI (DesktopUI upstream) =================
+      - name: Setup MSVC (ARM64) for GUI
+        if: steps.check.outputs.skip != 'true'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: arm64
+
+      - name: Install meson and ninja
+        if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
-          curl.exe -sSL -o "$env:RUNNER_TEMP\zttap300_signed.zip" "https://github.com/zerotier/ZeroTierOne/files/11115819/zttap300.zip"
-          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\zttap300_signed" | Out-Null
-          Expand-Archive "$env:RUNNER_TEMP\zttap300_signed.zip" -DestinationPath "$env:RUNNER_TEMP\zttap300_signed" -Force
-          Get-ChildItem "$env:RUNNER_TEMP\zttap300_signed" -Recurse | Select-Object FullName
+          python -m pip install --quiet meson ninja
 
-      - name: Package WOA artifacts
+      - name: Build libui-ng (ARM64)
+        if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
-          $dist = Join-Path $env:GITHUB_WORKSPACE 'dist'
-          $core = Join-Path $dist 'core'
-          $selfBuilt = Join-Path $dist 'tap-windows\arm64-selfbuilt'
-          $signed    = Join-Path $dist 'tap-windows\arm64-microsoft-signed'
-          New-Item -ItemType Directory -Force -Path $core, $selfBuilt, $signed | Out-Null
+          cd gui-src/libui-ng
+          if (Test-Path build) { Remove-Item -Recurse -Force build }
+          meson setup build --buildtype=release -Db_vscrt=mt --default-library=static --backend=ninja
+          ninja -C build
+          Rename-Item -Path "build\meson-out\libui.a" -NewName "ui.lib" -Force
 
-          # Core binaries (ARM64)
-          $coreSrc = 'windows\Build\ARM64\Release'
-          if (Test-Path $coreSrc) {
-            Copy-Item (Join-Path $coreSrc '*') -Destination $core -Recurse -Force
-          } else {
-            Write-Host "WARNING: $coreSrc not found - searching for zerotier-one_arm64.exe"
-            Get-ChildItem 'windows' -Recurse -Filter 'zerotier-one_arm64.exe' | ForEach-Object { Copy-Item $_.FullName $core -Force }
+      - name: Build tray library (ARM64 via MSVC)
+        if: steps.check.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          cd gui-src/tray
+          cl /c /O2 /MT /DTRAY_WINAPI=1 /std:c11 zt_desktop_tray.c /Fo:zt_desktop_tray.obj
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          lib /out:zt_desktop_tray.lib zt_desktop_tray.obj
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build zerotier_desktop_ui (ARM64)
+        if: steps.check.outputs.skip != 'true'
+        shell: pwsh
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          cd gui-src
+          cargo build --release --target=aarch64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # ================= Package & release =================
+      - name: Fetch signed ARM64 tap driver and installer tools
+        if: steps.check.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\pkg" | Out-Null
+          curl.exe -sSL -o "$env:RUNNER_TEMP\zttap300.zip" "https://github.com/zerotier/ZeroTierOne/files/11115819/zttap300.zip"
+          Expand-Archive "$env:RUNNER_TEMP\zttap300.zip" -DestinationPath "$env:RUNNER_TEMP\signed-drv" -Force
+          curl.exe -sSL -o "$env:RUNNER_TEMP\install.cmd" "https://raw.githubusercontent.com/Fectxd/ZeroTierOne/woa-build/tools/install.cmd"
+          curl.exe -sSL -o "$env:RUNNER_TEMP\uninstall.cmd" "https://raw.githubusercontent.com/Fectxd/ZeroTierOne/woa-build/tools/uninstall.cmd"
+          curl.exe -sSL -o "$env:RUNNER_TEMP\README.txt" "https://raw.githubusercontent.com/Fectxd/ZeroTierOne/woa-build/tools/README.txt"
+
+      - name: Assemble one-click installer package
+        if: steps.check.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          $pkg = Join-Path $env:GITHUB_WORKSPACE 'dist\ZeroTier-One-WOA-arm64'
+          New-Item -ItemType Directory -Force -Path "$pkg\core", "$pkg\gui", "$pkg\tap-windows\arm64" | Out-Null
+          $coreSrc = 'windows\Build\ARM64\Release\zerotier-one_arm64.exe'
+          if (-not (Test-Path $coreSrc)) { Write-Error "Core exe not found"; exit 1 }
+          Copy-Item $coreSrc "$pkg\core\" -Force
+          Copy-Item 'gui-src\target\aarch64-pc-windows-msvc\release\zerotier_desktop_ui.exe' "$pkg\gui\" -Force
+          Copy-Item "$env:RUNNER_TEMP\signed-drv\*" "$pkg\tap-windows\arm64\" -Force
+          Copy-Item "$env:RUNNER_TEMP\install.cmd", "$env:RUNNER_TEMP\uninstall.cmd", "$env:RUNNER_TEMP\README.txt" $pkg -Force
+          foreach ($exe in @("$pkg\core\zerotier-one_arm64.exe", "$pkg\gui\zerotier_desktop_ui.exe")) {
+            $b = [IO.File]::ReadAllBytes($exe); $pe = [BitConverter]::ToInt32($b, 0x3C); $m = [BitConverter]::ToUInt16($b, $pe + 4)
+            if ($m -ne 0xAA64) { Write-Error "Not ARM64: $exe"; exit 1 }
           }
-          Write-Host "Core files:"; Get-ChildItem $core | Select-Object Name, Length
+          Write-Host "All binaries verified ARM64."
+          Compress-Archive -Path "$pkg\*" -DestinationPath (Join-Path $env:GITHUB_WORKSPACE 'ZeroTier-One-WOA-arm64.zip') -Force
+          Get-Item (Join-Path $env:GITHUB_WORKSPACE 'ZeroTier-One-WOA-arm64.zip') | Select-Object Name, Length
 
-          # Self-built ARM64 driver
-          Get-ChildItem 'windows\TapDriver6' -Recurse -Include *.sys,*.inf,*.cat -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match 'ARM64' } | ForEach-Object { Copy-Item $_.FullName $selfBuilt -Force }
-          Write-Host "Self-built driver files:"; Get-ChildItem $selfBuilt | Select-Object Name, Length
-
-          # Ready-made Microsoft-signed ARM64 driver
-          Copy-Item (Join-Path "$env:RUNNER_TEMP\zttap300_signed" '*') -Destination $signed -Recurse -Force
-          Write-Host "Signed driver files:"; Get-ChildItem $signed -Recurse | Select-Object FullName
-
-          # Install instructions
-          Copy-Item (Join-Path $env:GITHUB_WORKSPACE 'INSTALL-README.txt') -Destination $dist -Force
-
-      - name: Upload WOA artifacts
+      - name: Upload installer package artifact
+        if: steps.check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: zerotier-one-woa-arm64
-          path: dist/
+          name: ZeroTier-One-WOA-arm64
+          path: ZeroTier-One-WOA-arm64.zip
           retention-days: 14
+
+      - name: Publish / update GitHub Release
+        if: steps.check.outputs.skip != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v1.16.2-woa-arm64"
+          $notes = "ZeroTier One - native Windows on ARM64 (WOA) one-click installer`n`nZEROTIER_UPSTREAM: ${{ steps.check.outputs.zt_sha }}`nGUI_UPSTREAM: ${{ steps.check.outputs.dui_sha }}`nBUILT: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') UTC"
+          $notesFile = Join-Path $env:RUNNER_TEMP 'notes.md'
+          Set-Content -Path $notesFile -Value $notes -Encoding UTF8
+          gh release view $tag --json id > $null 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "ZeroTier One WOA (Windows on ARM64) - auto build" --prerelease --notes-file $notesFile
+          } else {
+            gh release edit $tag --notes-file $notesFile
+          }
+          # remove legacy asset name if present, then upload (clobber)
+          gh release delete-asset $tag "ZeroTier-One-WOA-v1.16.2-arm64.zip" 2>$null | Out-Null
+          gh release upload $tag (Join-Path $env:GITHUB_WORKSPACE 'ZeroTier-One-WOA-arm64.zip') --clobber
