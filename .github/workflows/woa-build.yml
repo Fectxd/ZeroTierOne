@@ -80,6 +80,13 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
+          # some rustybits deps (prost-wkt-types) require protoc at build time
+          if (-not (Get-Command protoc -ErrorAction SilentlyContinue)) {
+            Write-Host "Installing protoc..."
+            choco install protoc -y --no-progress | Out-Null
+            $env:Path = "C:\Program Files\protoc\bin;$env:Path"
+            protoc --version
+          }
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
           if (-not $vsPath) { $vsPath = & $vswhere -latest -products * -property installationPath }
