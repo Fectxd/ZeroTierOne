@@ -8,18 +8,24 @@ ZeroTier One 原生 Windows on ARM64 (WOA) 一键安装包
   core/                   原生 ARM64 ZeroTier 核心 zerotier-one_arm64.exe
   tap-windows/arm64/      微软签名的 ARM64 TAP 驱动（zttap300，无需测试模式）
   gui/                    原生 ARM64 桌面 GUI（托盘应用 zerotier_desktop_ui.exe）
-  install.cmd             一键安装脚本（自动提权）
-  uninstall.cmd           卸载脚本（自动提权）
+  install.ps1             一键安装主脚本（推荐，PowerShell 版，不闪退）
+  install.cmd             安装引导（双击调用 install.ps1）
+  uninstall.ps1 / .cmd    卸载
 
 使用方法：
   1. 解压到任意目录
-  2. 双击 install.cmd（会弹出 UAC 提权，点"是"；若被杀软拦截请允许）
-     如果双击后窗口一闪而过，请右键 install.cmd -> 以管理员身份运行
-  3. 看到 "Installation complete" 即安装完成，桌面出现 ZeroTier 快捷方式
+  2. 右键 install.ps1 -> 使用 PowerShell 运行（会弹 UAC 提权，点"是"）
+     或直接双击 install.cmd（效果相同）
+  3. 每步显示 [OK]，最后 OK:8 FAIL:0 即安装完成，
+     桌面出现 ZeroTier 快捷方式
   4. 双击桌面 ZeroTier 图标打开 GUI，或命令行加入网络：
        cd C:\ProgramData\ZeroTier\One
        zerotier-cli.exe join <网络ID>
        zerotier-cli.exe listnetworks
+
+  若脚本被安全软件拦截：临时关闭实时防护后重试，
+  或在 cmd 中手动执行：
+    powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 
 安装内容：
   - 核心程序 -> C:\ProgramData\ZeroTier\One\（含 cli/idtool 副本）
