@@ -31,7 +31,7 @@ foreach ($n in @('zerotier-one_arm64.exe','zerotier-cli.exe','zerotier-idtool.ex
 Write-Host "=== [2/7] TAP driver files ===" -ForegroundColor Cyan
 $drvDir = Join-Path $ZT_DIR 'tap-windows\arm64'
 New-Item -ItemType Directory -Force -Path $drvDir | Out-Null
-try { Copy-Item -Path (Join-Path $SRC 'tap-windows\arm64\*') -Destination $drvDir -Force -ErrorAction Stop; Write-Host "  [OK] driver files" -ForegroundColor Green; $ok++ }
+try { Copy-Item -Path (Join-Path $SRC 'tap-windows\arm64\*') -Destination $drvDir -Force -ErrorAction Stop; Copy-Item -Path (Join-Path $SRC 'tap-windows\arm64\*') -Destination $ZT_DIR -Force -ErrorAction Stop; Write-Host "  [OK] driver files (tap-windows\arm64 + One root)" -ForegroundColor Green; $ok++ }
 catch { Write-Host "  [FAIL] driver files : $($_.Exception.Message)" -ForegroundColor Red; $fail++ }
 
 Write-Host "=== [3/7] Register TAP driver (pnputil) ===" -ForegroundColor Cyan
