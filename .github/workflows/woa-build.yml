@@ -166,6 +166,11 @@ jobs:
           Copy-Item $coreSrc "$pkg\core\" -Force
           Copy-Item 'gui-src\target\aarch64-pc-windows-msvc\release\zerotier_desktop_ui.exe' "$pkg\gui\" -Force
           Copy-Item "$env:RUNNER_TEMP\signed-drv\*" "$pkg\tap-windows\arm64\" -Force
+          # self-built ARM64 driver (same source as core; unsigned - for test-signing fallback)
+          New-Item -ItemType Directory -Force -Path "$pkg\tap-windows\arm64-selfbuilt" | Out-Null
+          Get-ChildItem 'windows\TapDriver6' -Recurse -Include *.sys,*.inf,*.cat -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'ARM64' } | ForEach-Object { Copy-Item $_.FullName "$pkg\tap-windows\arm64-selfbuilt\" -Force }
+          Write-Host "Self-built driver files:"; Get-ChildItem "$pkg\tap-windows\arm64-selfbuilt" | Select-Object Name, Length
           Copy-Item "$env:RUNNER_TEMP\install.cmd", "$env:RUNNER_TEMP\uninstall.cmd", "$env:RUNNER_TEMP\install.ps1", "$env:RUNNER_TEMP\uninstall.ps1", "$env:RUNNER_TEMP\README.txt" $pkg -Force
           foreach ($exe in @("$pkg\core\zerotier-one_arm64.exe", "$pkg\gui\zerotier_desktop_ui.exe")) {
             $b = [IO.File]::ReadAllBytes($exe); $pe = [BitConverter]::ToInt32($b, 0x3C); $m = [BitConverter]::ToUInt16($b, $pe + 4)
