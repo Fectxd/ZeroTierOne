@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 title ZeroTier One WOA Installer
 
 rem ============================================
@@ -8,12 +8,23 @@ rem  One-click installer
 rem ============================================
 
 net session >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Requesting administrator privileges...
-    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-    exit /b
-)
+if not %errorlevel%==0 goto :elevate
+goto :main
 
+:elevate
+echo Requesting administrator privileges...
+echo If a UAC prompt appears, click Yes.
+powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+if not %errorlevel%==0 (
+    echo.
+    echo Elevation failed or was cancelled.
+    echo Please right-click install.cmd and choose "Run as administrator".
+)
+echo.
+pause
+exit /b
+
+:main
 set "SRC=%~dp0"
 set "ZT_DIR=C:\ProgramData\ZeroTier\One"
 set "GUI_DIR=C:\Program Files\ZeroTier\DesktopUI"
@@ -33,18 +44,18 @@ copy /Y "%SRC%tap-windows\arm64\zttap300.cat" "%ZT_DIR%\tap-windows\arm64\" >nul
 
 echo [3/6] Installing signed TAP driver package...
 pnputil /add-driver "%ZT_DIR%\tap-windows\arm64\zttap300.inf" /install
-if %errorlevel% neq 0 (
+if errorlevel 1 (
     echo   [WARN] pnputil reported an issue (driver may already be installed).
 )
 
 echo [4/6] Registering ZeroTier service...
 cd /d "%ZT_DIR%"
 sc query ZeroTierOneService >nul 2>&1
-if %errorlevel% equ 0 (
+if not errorlevel 1 (
     echo   Service already exists, skipping.
 ) else (
     zerotier-one_arm64.exe -I
-    if %errorlevel% neq 0 (
+    if errorlevel 1 (
         echo   [ERROR] Failed to install service. Make sure you are administrator.
     )
 )
@@ -52,7 +63,7 @@ if %errorlevel% equ 0 (
 echo [5/6] Starting ZeroTier service...
 net start ZeroTierOneService >nul 2>&1
 sc query ZeroTierOneService | findstr /i "RUNNING" >nul
-if %errorlevel% neq 0 (
+if errorlevel 1 (
     echo   [WARN] Service is not running yet. Check services.msc for ZeroTierOneService.
 )
 
@@ -74,3 +85,4 @@ echo     zerotier-cli.exe join NETWORK-ID
 echo ================================================
 echo.
 pause
+endlocal
