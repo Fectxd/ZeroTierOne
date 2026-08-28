@@ -19,12 +19,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $PSNativeCommandUseErrorActionPreference = $false
           $ztSha = (gh api repos/zerotier/ZeroTierOne/commits/dev --jq .sha).Trim()
           $duiSha = (gh api repos/zerotier/DesktopUI/commits/main --jq .sha).Trim()
           Write-Host "ZEROTIER_UPSTREAM: $ztSha"
           Write-Host "GUI_UPSTREAM: $duiSha"
           $skip = $false
-          $body = gh release view v1.16.2-woa-arm64 --json body --jq .body 2>$null
+          $body = gh release view v1.16.2-woa-arm64 --repo Fectxd/ZeroTierOne --json body --jq .body 2>$null
           if ($LASTEXITCODE -eq 0 -and $body -match "ZEROTIER_UPSTREAM:\s*$ztSha" -and $body -match "GUI_UPSTREAM:\s*$duiSha") {
             $skip = $true
             Write-Host "Already up to date with upstream - skipping build."
@@ -175,16 +176,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $PSNativeCommandUseErrorActionPreference = $false
           $tag = "v1.16.2-woa-arm64"
           $notes = "ZeroTier One - native Windows on ARM64 (WOA) one-click installer`n`nZEROTIER_UPSTREAM: ${{ steps.check.outputs.zt_sha }}`nGUI_UPSTREAM: ${{ steps.check.outputs.dui_sha }}`nBUILT: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') UTC"
           $notesFile = Join-Path $env:RUNNER_TEMP 'notes.md'
           Set-Content -Path $notesFile -Value $notes -Encoding UTF8
-          gh release view $tag --json id > $null 2>&1
+          gh release view $tag --repo Fectxd/ZeroTierOne --json id > $null 2>&1
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --title "ZeroTier One WOA (Windows on ARM64) - auto build" --prerelease --notes-file $notesFile
+            gh release create $tag --repo Fectxd/ZeroTierOne --title "ZeroTier One WOA (Windows on ARM64) - auto build" --prerelease --notes-file $notesFile
           } else {
-            gh release edit $tag --notes-file $notesFile
+            gh release edit $tag --repo Fectxd/ZeroTierOne --notes-file $notesFile
           }
           # remove legacy asset name if present, then upload (clobber)
-          gh release delete-asset $tag "ZeroTier-One-WOA-v1.16.2-arm64.zip" 2>$null | Out-Null
-          gh release upload $tag (Join-Path $env:GITHUB_WORKSPACE 'ZeroTier-One-WOA-arm64.zip') --clobber
+          gh release delete-asset $tag "ZeroTier-One-WOA-v1.16.2-arm64.zip" --repo Fectxd/ZeroTierOne 2>$null | Out-Null
+          gh release upload $tag (Join-Path $env:GITHUB_WORKSPACE 'ZeroTier-One-WOA-arm64.zip') --repo Fectxd/ZeroTierOne --clobber
