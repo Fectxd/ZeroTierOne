@@ -1,14 +1,25 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 title ZeroTier One WOA Uninstaller
 
 net session >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Requesting administrator privileges...
-    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-    exit /b
-)
+if not %errorlevel%==0 goto :elevate
+goto :main
 
+:elevate
+echo Requesting administrator privileges...
+echo If a UAC prompt appears, click Yes.
+powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+if not %errorlevel%==0 (
+    echo.
+    echo Elevation failed or was cancelled.
+    echo Please right-click uninstall.cmd and choose "Run as administrator".
+)
+echo.
+pause
+exit /b
+
+:main
 set "ZT_DIR=C:\ProgramData\ZeroTier\One"
 
 echo [1/3] Stopping service...
@@ -32,7 +43,8 @@ echo
 echo   - Core files remain in C:\ProgramData\ZeroTier\One
 echo     (delete that folder manually if you want them gone)
 echo   - The TAP driver can be removed via Device Manager
-echo     (Network adapters -> ZeroTier) if desired.
+echo     (Network adapters - ZeroTier) if desired.
 echo ================================================
 echo.
 pause
+endlocal
