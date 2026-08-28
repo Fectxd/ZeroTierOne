@@ -16,6 +16,8 @@ jobs:
       - name: Check upstream state (skip if already built)
         id: check
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $ztSha = (gh api repos/zerotier/ZeroTierOne/commits/dev --jq .sha).Trim()
           $duiSha = (gh api repos/zerotier/DesktopUI/commits/main --jq .sha).Trim()
